@@ -82,6 +82,14 @@ ebook-reader/
 - **增强**：MOBI/AZW3/FB2/CBZ/CBR 解析、书签/笔记/高亮、FTS5 全文搜索。
 - **优化**：虚拟滚动、封面 WebP 缓存、macOS/Linux CI、自动更新。
 
+## 版本管理（git）
+
+- 仓库：`main` 分支，基线提交 `cf3bf81`（v23，2026-10-29）。
+- 忽略范围：`node_modules/`、`out/`、`release*/`、`dist-electron/`、`_archive/`、`screenshots/`、`*.exe|7z|blockmap`。
+- 提交规范（Conventional Commits）：`feat:` 新功能 / `fix:` 缺陷修复 / `refactor:` 重构 / `perf:` 性能 / `docs:` 文档 / `chore:` 工程杂务。
+- 每次交付前：`npm run typecheck` → `npm run build` → `npm run shot`（29 状态零渲染错误）→ 打包 → 归档到 `_archive/<日期>_v<N>_<主题>/`。
+- 建议粒度：一个可验证的功能点一个提交；修复类提交在描述里写明「现象 / 根因 / 修复」。
+
 ## 历史版本归档（_archive/）
 
 工程根目录的 `_archive/` 为**目录联接（Junction）**，实体在 `D:/moyu-archive`（C 盘空间有限，大产物外置；访问 `_archive/` 与普通目录完全一致）。

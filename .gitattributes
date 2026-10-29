@@ -1,0 +1,15 @@
+# 统一换行与文本属性，避免跨平台 diff 噪音
+* text=auto eol=lf
+
+# 明确二进制，防止被当作文本合并
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.ico binary
+*.exe binary
+*.7z binary
+*.woff binary
+*.woff2 binary
+
+# 锁文件按语言处理
+package-lock.json -diff linguist-generated

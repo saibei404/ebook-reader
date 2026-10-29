@@ -1,0 +1,57 @@
+{
+  "name": "moyu-reader",
+  "version": "0.1.0",
+  "description": "墨鱼阅读器 - 本地优先的跨平台阅读器 MVP（首页展示模块）",
+  "author": "WorkBuddy",
+  "license": "MIT",
+  "main": "out/main/main.js",
+  "scripts": {
+    "dev": "node scripts/run.cjs dev",
+    "dev:web": "vite",
+    "build": "electron-vite build",
+    "typecheck": "tsc --noEmit",
+    "shot": "npm run build && node scripts/run.cjs shot",
+    "dist:portable": "electron-vite build && electron-builder --win portable -c.directories.output=release"
+  },
+  "dependencies": {
+    "idb": "^8.0.0",
+    "motion": "^12.23.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "zustand": "^5.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8",
+    "electron-vite": "^2.3.0",
+    "typescript": "^5.7.0",
+    "vite": "^5.4.11"
+  },
+  "build": {
+    "appId": "com.moyu.reader",
+    "productName": "墨鱼阅读器",
+    "copyright": "Copyright © 2026 Moyu Reader",
+    "asar": true,
+    "directories": {
+      "output": "D:/moyu-builds"
+    },
+  "files": [
+    "out/**/*",
+    "resources/icon.png",
+    "resources/tray-icon.png",
+    "!out/renderer/**/*.map"
+  ],
+    "win": {
+      "target": ["portable"],
+      "icon": "resources/icon.ico",
+      "signAndEditExecutable": false
+    },
+    "portable": {
+      "artifactName": "墨鱼阅读器-0.1.0-portable.exe"
+    }
+  }
+}

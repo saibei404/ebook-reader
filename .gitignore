@@ -1,0 +1,35 @@
+# 依赖与构建产物
+node_modules/
+out/
+dist-electron/
+release/
+release-v*/
+
+# 归档实体（_archive 为指向 D 盘的目录联接，含历史构建 7.6GB，绝不入库）
+_archive/
+
+# 可执行交付件（大二进制，由 _archive 批次归档管理）
+*.exe
+*.msi
+*.7z
+*.nsis.*
+*.blockmap
+*.dmg
+*.AppImage
+
+# 截图回归产物（每次 shot 全量重写，噪声过大；由批次归档留存）
+screenshots/
+
+# 日志与临时文件
+*.log
+crash.log
+*.tmp
+.vite/
+.cache/
+
+# 编辑器与系统
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json

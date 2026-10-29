@@ -1,0 +1,89 @@
+export type BookFormat = 'epub' | 'pdf' | 'mobi' | 'azw3' | 'fb2' | 'txt' | 'md' | 'cbz' | 'cbr' | 'unknown'
+
+export interface Book {
+  id: string
+  title: string
+  author: string
+  format: BookFormat
+  addedAt: number
+  lastReadAt: number | null
+  progress: number
+  coverId: string | null
+  coverSeed: number
+  shelfId: string | null
+  size: number
+  sourcePath: string | null
+  description: string
+}
+
+export type AnimMode = 'flip' | 'fade' | 'zoom' | 'slide' | 'stack'
+export type MaterialStyle = 'frosted' | 'acrylic' | 'mica' | 'solid'
+export type CardSize = 'sm' | 'md' | 'lg'
+export type WallpaperFit = 'cover' | 'fill' | 'center' | 'contain' | 'stretch'
+
+export const WALLPAPER_FITS: { id: WallpaperFit; label: string; hint: string; objectFit: 'cover' | 'none' | 'contain' | 'fill' }[] = [
+  { id: 'cover', label: '覆盖', hint: '保持比例，裁剪溢出，铺满容器', objectFit: 'cover' },
+  { id: 'fill', label: '填充', hint: '以铺满为目标，短边优先放大（与覆盖的差异：允许轻微形变容忍度更高，适合动图/视频避免黑边）', objectFit: 'cover' },
+  { id: 'center', label: '居中', hint: '保持原始尺寸（可配缩放），容器中居中', objectFit: 'none' },
+  { id: 'contain', label: '适应', hint: '保持比例，完整显示，允许留白', objectFit: 'contain' },
+  { id: 'stretch', label: '拉伸', hint: '缩放到容器尺寸，允许形变', objectFit: 'fill' },
+]
+
+export interface Settings {
+  theme: 'light' | 'dark'
+  material: MaterialStyle
+  animMode: AnimMode
+  wallpaperId: string | null
+  wallpaperDim: number
+  wallpaperFit: WallpaperFit
+  wallpaperZoom: number
+  /** 书架内容区衬底不透明度（背景透明度）：越小壁纸越清晰 */
+  contentOpacity: number
+  /** Dock 栏（侧栏+顶栏）不透明度：必须显著低于 contentOpacity，壁纸在 Dock 下更明显 */
+  dockOpacity: number
+  cardSize: CardSize
+  bossKey: string
+  nativeAcrylic: boolean
+}
+
+export const ANIM_MODES: { id: AnimMode; label: string; hint: string }[] = [
+  { id: 'flip', label: '翻页', hint: '3D 书页翻转入场，弹簧跟手' },
+  { id: 'fade', label: '淡入', hint: '柔和平移淡入，最轻量' },
+  { id: 'zoom', label: '缩放', hint: '由小到大弹出，活泼' },
+  { id: 'slide', label: '滑入', hint: '左右交替滑入，节奏感' },
+  { id: 'stack', label: '堆叠', hint: '卡片如洗牌般展开' },
+]
+
+export const MATERIALS: { id: MaterialStyle; label: string; hint: string }[] = [
+  { id: 'frosted', label: '磨砂玻璃', hint: 'blur + 高饱和，通透柔和' },
+  { id: 'acrylic', label: '亚克力', hint: '深层模糊 + 噪点 + 高光描边' },
+  { id: 'mica', label: '云母', hint: '从壁纸取色的不透明材质' },
+  { id: 'solid', label: '纯色', hint: '纯色表面，性能最好' },
+]
+
+export const FORMAT_LABEL: Record<BookFormat, string> = {
+  epub: 'EPUB',
+  pdf: 'PDF',
+  mobi: 'MOBI',
+  azw3: 'AZW3',
+  fb2: 'FB2',
+  txt: 'TXT',
+  md: 'MD',
+  cbz: 'CBZ',
+  cbr: 'CBR',
+  unknown: 'FILE',
+}
+
+export function formatFromName(name: string): BookFormat {
+  const ext = name.toLowerCase().split('.').pop() || ''
+  if (ext === 'epub') return 'epub'
+  if (ext === 'pdf') return 'pdf'
+  if (ext === 'mobi') return 'mobi'
+  if (ext === 'azw3' || ext === 'azw') return 'azw3'
+  if (ext === 'fb2') return 'fb2'
+  if (ext === 'txt') return 'txt'
+  if (ext === 'md' || ext === 'markdown') return 'md'
+  if (ext === 'cbz') return 'cbz'
+  if (ext === 'cbr') return 'cbr'
+  return 'unknown'
+}

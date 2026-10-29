@@ -1,36 +1,21 @@
-import { useEffect, useRef, useState } from 'react'
+import { useRef } from 'react'
 import { motion } from 'motion/react'
 import { useStore } from '@/store/useStore'
 import { FORMAT_LABEL } from '@/types/book'
 import { formatSize } from '@/lib/format'
+import { nativeApi } from '@/lib/native'
 import { IconX, IconImage, IconShuffle, IconRefresh, IconTrash, IconBook } from './Icons'
 
 export function BookDetail() {
-  const { books, covers, procCovers, ui, settings, openBook, updateBook, removeBook, setCoverFromFile, randomizeCover, resetCover, toast } =
+  const { books, covers, procCovers, ui, settings, openBook, removeBook, setCoverFromFile, randomizeCover, resetCover, toast } =
     useStore()
   const fileRef = useRef<HTMLInputElement>(null)
-  // 进度拖拽：本地即时反馈 + 260ms 防抖落库，避免拖动过程中高频写 IndexedDB
-  const [dragPct, setDragPct] = useState<number | null>(null)
-  const saveTimer = useRef<number | null>(null)
   const book = books.find((b) => b.id === ui.selectedId)
-
-  useEffect(() => {
-    setDragPct(null)
-    return () => {
-      if (saveTimer.current) window.clearTimeout(saveTimer.current)
-    }
-  }, [ui.selectedId])
 
   if (!book) return null
   const coverUrl = (book.coverId ? covers[book.coverId] : null) ?? procCovers[book.id] ?? ''
-  const pct = dragPct ?? Math.round(book.progress * 100)
-
-  const commitProgress = (v: number) => {
-    if (saveTimer.current) window.clearTimeout(saveTimer.current)
-    saveTimer.current = null
-    void updateBook(book.id, { progress: v / 100, lastReadAt: Date.now() })
-    setDragPct(null)
-  }
+  // 进度以 locator 为准（真实阅读位置），老数据回退 progress
+  const pct = Math.round((book.locator?.percent ?? book.progress ?? 0) * 100)
 
   return (
     <motion.div
@@ -94,25 +79,9 @@ export function BookDetail() {
 
           <div className="detail-row">
             <span className="detail-key">阅读进度</span>
-            <input
-              className="progress-slider"
-              type="range"
-              min={0}
-              max={100}
-              value={pct}
-              onChange={(e) => {
-                const v = Number(e.target.value)
-                setDragPct(v)
-                if (saveTimer.current) window.clearTimeout(saveTimer.current)
-                saveTimer.current = window.setTimeout(() => commitProgress(v), 260)
-              }}
-              onPointerUp={() => {
-                if (dragPct != null) commitProgress(dragPct)
-              }}
-              onKeyUp={() => {
-                if (dragPct != null) commitProgress(dragPct)
-              }}
-            />
+            <div className="detail-progress-bar" title="进度由阅读位置自动记录">
+              <span style={{ width: `${pct}%` }} />
+            </div>
             <span className="detail-val">{pct}%</span>
           </div>
 
@@ -136,10 +105,17 @@ export function BookDetail() {
           <div className="detail-actions">
             <button
               className="tbtn primary"
-              onClick={() => toast('阅读内核将在下一阶段接入（EPUB.js / PDF.js）', 'info')}
+              onClick={() => {
+                if (!book.sourcePath) {
+                  toast('这本书没有关联的本地文件，请在书架重新导入原始文件', 'err')
+                  return
+                }
+                if (nativeApi?.openReader) nativeApi.openReader(book.id)
+                else toast('当前环境不支持打开阅读窗口（请使用桌面客户端）', 'err')
+              }}
             >
               <IconBook size={15} />
-              <span>开始阅读</span>
+              <span>继续阅读</span>
             </button>
             <button
               className="tbtn danger"

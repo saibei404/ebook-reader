@@ -41,7 +41,9 @@ export function BookCard({ book, index, itemVariants, exitVariants }: Props) {
     ry.set(0)
   }
 
-  const pct = Math.round(book.progress * 100)
+  // 以 locator 为准（真实阅读位置），老数据回退 progress
+  const progress = book.locator?.percent ?? book.progress
+  const pct = Math.round(progress * 100)
   // 圆环周长（r=15.5），用于 stroke-dashoffset 计算
   const ringC = 2 * Math.PI * 15.5
 
@@ -70,7 +72,7 @@ export function BookCard({ book, index, itemVariants, exitVariants }: Props) {
           <span className="spine" aria-hidden />
           <motion.div className="cover-glare" style={{ left: glareX, opacity: glareOpacity }} />
           <span className="format-badge">{FORMAT_LABEL[book.format]}</span>
-          {book.progress > 0 && (
+          {progress > 0.0005 && (
             /* 圆环进度（iPhone 电量环风格）：置于右上角，与左下角格式徽标错开，杜绝重叠 */
             <div className="progress-ring" title={`阅读进度 ${pct}%`}>
               <svg viewBox="0 0 36 36" aria-hidden>
@@ -81,7 +83,7 @@ export function BookCard({ book, index, itemVariants, exitVariants }: Props) {
                   cy="18"
                   r="15.5"
                   strokeDasharray={ringC}
-                  strokeDashoffset={ringC * (1 - Math.min(1, Math.max(0, book.progress)))}
+                  strokeDashoffset={ringC * (1 - Math.min(1, Math.max(0, progress)))}
                 />
               </svg>
             </div>

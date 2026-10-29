@@ -1,5 +1,28 @@
 export type BookFormat = 'epub' | 'pdf' | 'mobi' | 'azw3' | 'fb2' | 'txt' | 'md' | 'cbz' | 'cbr' | 'unknown'
 
+/**
+ * 阅读定位（locator）：跨格式统一的位置抽象，唯一真源。
+ * - cfi：EPUB（epub.js CFI 字符串，精确定位到段落）
+ * - page：PDF（1-based 页码）
+ * - offset：TXT / FB2 / MD（字符偏移，配合 fontSize 变化仍可近似还原）
+ * - index：CBZ（图片序号，0-based）
+ * percent 恒为 0–1，用于书架圆环与统计，不参与精确恢复。
+ */
+export interface Locator {
+  kind: 'cfi' | 'page' | 'offset' | 'index'
+  value: string | number
+  percent: number
+  /** 章节/标题提示（可选，用于恢复时的视觉反馈） */
+  label?: string
+  /**
+   * 像素滚动比例 0–1（scrollTop / (scrollHeight - clientHeight)）。
+   * 文本类格式恢复时优先用它（与渲染高度直接对应，精度高于字符比例）；
+   * 字号变化后可用 value(字符偏移) 兜底。
+   */
+  scrollRatio?: number
+  updatedAt: number
+}
+
 export interface Book {
   id: string
   title: string
@@ -8,6 +31,8 @@ export interface Book {
   addedAt: number
   lastReadAt: number | null
   progress: number
+  /** 精确阅读位置；老数据缺失时以 progress 兜底 */
+  locator?: Locator | null
   coverId: string | null
   coverSeed: number
   shelfId: string | null

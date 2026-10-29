@@ -25,7 +25,11 @@ export default defineConfig({
     build: {
       outDir: 'out/renderer',
       rollupOptions: {
-        input: { index: resolve(__dirname, 'index.html') }
+        input: {
+          index: resolve(__dirname, 'index.html'),
+          // 独立阅读窗口入口：epub.js / pdf.js 只在此入口按需加载
+          reader: resolve(__dirname, 'reader.html'),
+        }
       }
     },
     plugins: [react()]

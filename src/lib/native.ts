@@ -12,6 +12,10 @@ export interface MoyuAPI {
   pickBooks(): Promise<PickedFile[] | null>
   readFileDataUrl(p: string): Promise<string>
   windowControl(action: 'minimize' | 'maximize' | 'close' | 'quit'): void
+  openReader(bookId: string): void
+  closeReader(): void
+  readBook(p: string): Promise<{ ok: boolean; data?: ArrayBuffer; size?: number; name?: string; error?: string }>
+  onReaderCrashed(cb: () => void): () => void
   recreateWindow(): void
   openExternal(url: string): Promise<void>
   setBossKey(accel: string): Promise<boolean>

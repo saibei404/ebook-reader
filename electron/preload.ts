@@ -14,6 +14,10 @@ export interface MoyuAPI {
   pickBooks(): Promise<PickedFile[] | null>
   readFileDataUrl(p: string): Promise<string>
   windowControl(action: 'minimize' | 'maximize' | 'close' | 'quit'): void
+  openReader(bookId: string): void
+  closeReader(): void
+  readBook(p: string): Promise<{ ok: boolean; data?: ArrayBuffer; size?: number; name?: string; error?: string }>
+  onReaderCrashed(cb: () => void): () => void
   recreateWindow(): void
   openExternal(url: string): Promise<void>
   setBossKey(accel: string): Promise<boolean>
@@ -59,6 +63,14 @@ const api: MoyuAPI = {
   pickBooks: () => ipcRenderer.invoke('moyu:pick-books'),
   readFileDataUrl: (p) => ipcRenderer.invoke('moyu:read-dataurl', p),
   windowControl: (a) => ipcRenderer.send('moyu:window', a),
+  openReader: (id) => ipcRenderer.send('moyu:open-reader', id),
+  closeReader: () => ipcRenderer.send('moyu:close-reader'),
+  readBook: (p) => ipcRenderer.invoke('moyu:read-book', p),
+  onReaderCrashed: (cb) => {
+    const h = () => cb()
+    ipcRenderer.on('moyu:reader-crashed', h)
+    return () => ipcRenderer.removeListener('moyu:reader-crashed', h)
+  },
   recreateWindow: () => ipcRenderer.send('moyu:recreate'),
   openExternal: (u) => ipcRenderer.invoke('moyu:open-external', u),
   setBossKey: (a) => ipcRenderer.invoke('moyu:set-boss-key', a),

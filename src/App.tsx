@@ -1,6 +1,8 @@
 import { useEffect, useRef } from 'react'
 import { AnimatePresence } from 'motion/react'
 import { useStore } from '@/store/useStore'
+import { subscribeBookUpdates } from '@/reader/locator'
+import { nativeApi } from '@/lib/native'
 import { WallpaperLayer } from '@/components/WallpaperLayer'
 import { TabBar } from '@/components/TabBar'
 import { TopBar } from '@/components/TopBar'
@@ -17,6 +19,27 @@ export default function App() {
   useEffect(() => {
     void hydrate()
   }, [hydrate])
+
+  // 阅读窗口把进度写回 IndexedDB 后经 BroadcastChannel 通知；此处只更新内存，避免重复读库
+  useEffect(() => {
+    const off = subscribeBookUpdates(({ bookId, percent, locator }) => {
+      useStore.setState((s) => ({
+        books: s.books.map((b) =>
+          b.id === bookId ? { ...b, progress: percent, locator, lastReadAt: locator.updatedAt } : b
+        ),
+      }))
+    })
+    return off
+  }, [])
+
+  // 阅读窗口崩溃：主窗口提示并可重开（阅读窗独立进程，主窗口不受影响）
+  useEffect(() => {
+    if (!nativeApi?.onReaderCrashed) return
+    const off = nativeApi.onReaderCrashed(() => {
+      useStore.getState().toast('阅读窗口异常退出，位置已保存，可重新打开', 'err')
+    })
+    return off
+  }, [])
 
   useEffect(() => {
     document.documentElement.dataset.nativeAcrylic =

@@ -2015,3 +2015,21 @@ code {
 .settings-nav .set-nav-btn:hover .set-nav-inner {
   background: var(--hover-bg);
 }
+
+
+/* 详情页只读进度条（进度由阅读位置自动记录） */
+.detail-progress-bar {
+  flex: 1;
+  height: 5px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--text-1) 14%, transparent);
+  overflow: hidden;
+}
+
+.detail-progress-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--accent);
+  transition: width 0.25s ease;
+}

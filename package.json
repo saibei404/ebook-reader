@@ -14,8 +14,11 @@
     "dist:portable": "electron-vite build && electron-builder --win portable -c.directories.output=release"
   },
   "dependencies": {
+    "epubjs": "^0.3.93",
+    "fflate": "^0.8.3",
     "idb": "^8.0.0",
     "motion": "^12.23.0",
+    "pdfjs-dist": "^4.10.38",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "zustand": "^5.0.0"
@@ -39,14 +42,16 @@
     "directories": {
       "output": "D:/moyu-builds"
     },
-  "files": [
-    "out/**/*",
-    "resources/icon.png",
-    "resources/tray-icon.png",
-    "!out/renderer/**/*.map"
-  ],
+    "files": [
+      "out/**/*",
+      "resources/icon.png",
+      "resources/tray-icon.png",
+      "!out/renderer/**/*.map"
+    ],
     "win": {
-      "target": ["portable"],
+      "target": [
+        "portable"
+      ],
       "icon": "resources/icon.ico",
       "signAndEditExecutable": false
     },

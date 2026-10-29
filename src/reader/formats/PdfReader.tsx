@@ -7,7 +7,10 @@ import type { Locator } from '@/types/book'
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.min.mjs', import.meta.url).href
 
 interface Props {
-  data: ArrayBuffer
+  /** 完整字节（小文件或非流式来源时使用） */
+  data: ArrayBuffer | null
+  /** moyu-file:// 地址：由 pdf.js 按 Range 分块读取，数百 MB 也不占内存 */
+  url?: string
   scaleMode: 'page-width' | 'page-fit' | 'auto'
   initialLocator: Locator | null
   onLocate: (loc: Locator) => void
@@ -21,7 +24,7 @@ interface Props {
  * - 每页 canvas 在离开视口较远时释放像素（限制保留数量），控制内存；
  * - 位置：locator.kind='page'（1-based 页码）。
  */
-export function PdfReader({ data, scaleMode, initialLocator, onLocate, onError, onInfo }: Props) {
+export function PdfReader({ data, url, scaleMode, initialLocator, onLocate, onError, onInfo }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const docRef = useRef<PDFDocumentProxy | null>(null)
   const [pages, setPages] = useState<{ width: number; height: number }[]>([])
@@ -33,7 +36,22 @@ export function PdfReader({ data, scaleMode, initialLocator, onLocate, onError, 
   // 载入文档 + 计算每页占位尺寸
   useEffect(() => {
     let disposed = false
-    const task = pdfjsLib.getDocument({ data: new Uint8Array(data) })
+    if (!data && !url) {
+      onError('缺少可读取的文件来源')
+      return
+    }
+    // 优先 url（Range 流式）；仅在无 url 时退化为内存数据
+    const task = pdfjsLib.getDocument(
+      url
+        ? {
+            url,
+            // 每块 512KB：大文件首屏只需读少量分块即可出第一页
+            rangeChunkSize: 512 * 1024,
+            disableAutoFetch: true,
+            disableStream: false,
+          }
+        : { data: new Uint8Array(data as ArrayBuffer) }
+    )
     task.promise
       .then(async (doc) => {
         if (disposed) return
@@ -67,7 +85,7 @@ export function PdfReader({ data, scaleMode, initialLocator, onLocate, onError, 
       docRef.current = null
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data])
+  }, [data, url])
 
   // 懒渲染 + 内存控制
   useEffect(() => {

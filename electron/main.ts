@@ -1,6 +1,7 @@
-import { app, BrowserWindow, Tray, Menu, globalShortcut, ipcMain, dialog, nativeImage, shell } from 'electron'
+import { app, BrowserWindow, Tray, Menu, globalShortcut, ipcMain, dialog, nativeImage, shell, protocol } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
+import { Readable } from 'node:stream'
 import { davList, davDownload } from './netpan'
 import {
   baiduStartAuth,
@@ -12,6 +13,116 @@ import {
 } from './baidu'
 
 const isShot = process.argv.includes('--shot')
+
+/**
+ * 书籍本地文件协议：moyu-file://f/<base64url(绝对路径)>
+ * 目的：让 PDF 这类可能上百 MB 的文件由引擎按 Range 分块流式读取，
+ * 不必把整个文件经 IPC 结构化克隆复制进渲染进程内存（277MB 会放大成 1GB+ 峰值）。
+ */
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: 'moyu-file',
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      corsEnabled: true,
+      bypassCSP: true,
+      stream: true,
+    },
+  },
+])
+
+function toBookUrl(absPath: string): string {
+  return `moyu-file://f/${Buffer.from(absPath, 'utf8').toString('base64url')}`
+}
+
+function bookUrlToPath(url: string): string | null {
+  try {
+    const u = new URL(url)
+    if (u.protocol !== 'moyu-file:') return null
+    const raw = u.pathname.replace(/^\/+/, '')
+    if (!raw) return null
+    const decoded = Buffer.from(decodeURIComponent(raw), 'base64url').toString('utf8')
+    return path.isAbsolute(decoded) ? decoded : null
+  } catch {
+    return null
+  }
+}
+
+const MIME_BY_EXT: Record<string, string> = {
+  pdf: 'application/pdf',
+  epub: 'application/epub+zip',
+  txt: 'text/plain; charset=utf-8',
+  md: 'text/markdown; charset=utf-8',
+  fb2: 'application/xml; charset=utf-8',
+  cbz: 'application/zip',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  png: 'image/png',
+  webp: 'image/webp',
+  gif: 'image/gif',
+  avif: 'image/avif',
+}
+
+/** 注册书籍文件协议处理器（支持 Range，供 pdf.js 分块加载） */
+function registerBookProtocol(): void {
+  protocol.handle('moyu-file', async (request) => {
+    const filePath = bookUrlToPath(request.url)
+    if (!filePath) return new Response('bad url', { status: 400 })
+
+    let st: fs.Stats
+    try {
+      st = await fs.promises.stat(filePath)
+    } catch {
+      return new Response('not found', { status: 404 })
+    }
+    if (!st.isFile()) return new Response('not a file', { status: 404 })
+
+    const size = st.size
+    const type = MIME_BY_EXT[path.extname(filePath).slice(1).toLowerCase()] ?? 'application/octet-stream'
+    const rangeHeader = request.headers.get('range') || ''
+    const m = /bytes=(\d*)-(\d*)/i.exec(rangeHeader)
+
+    if (m && (m[1] || m[2])) {
+      let start = m[1] ? Number.parseInt(m[1], 10) : 0
+      let end = m[2] ? Number.parseInt(m[2], 10) : size - 1
+      // bytes=-N（后缀范围）：取末尾 N 字节
+      if (!m[1] && m[2]) {
+        start = Math.max(0, size - Number.parseInt(m[2], 10))
+        end = size - 1
+      }
+      if (!Number.isFinite(start) || start >= size || start < 0) {
+        return new Response(null, { status: 416, headers: { 'Content-Range': `bytes */${size}` } })
+      }
+      end = Math.min(Number.isFinite(end) ? end : size - 1, size - 1)
+      const stream = fs.createReadStream(filePath, { start, end })
+      return new Response(Readable.toWeb(stream) as unknown as ReadableStream, {
+        status: 206,
+        headers: {
+          'Content-Type': type,
+          'Content-Length': String(end - start + 1),
+          'Content-Range': `bytes ${start}-${end}/${size}`,
+          'Accept-Ranges': 'bytes',
+          'Access-Control-Allow-Origin': '*',
+          'Cache-Control': 'no-store',
+        },
+      })
+    }
+
+    const stream = fs.createReadStream(filePath)
+    return new Response(Readable.toWeb(stream) as unknown as ReadableStream, {
+      status: 200,
+      headers: {
+        'Content-Type': type,
+        'Content-Length': String(size),
+        'Accept-Ranges': 'bytes',
+        'Access-Control-Allow-Origin': '*',
+        'Cache-Control': 'no-store',
+      },
+    })
+  })
+}
 
 interface AppSettings {
   theme?: 'light' | 'dark'
@@ -88,8 +199,9 @@ function openReaderWin(bookId: string): void {
         preload: path.join(__dirname, '../preload/preload.js'),
         contextIsolation: true,
         sandbox: false,
-        // 阅读窗口独立分区，避免与主窗口争抢同一渲染进程缓存
-        partition: 'persist:moyu-reader',
+        // 必须与主窗口共用默认 session：
+        // 1) IndexedDB 库（书架/定位/偏好）在同源同分区才可见，独立分区会读不到书；
+        // 2) BroadcastChannel 也只在同一分区内通信，位置变更无法回传书架。
       },
     })
     readerWin = win
@@ -361,20 +473,34 @@ function registerIPC(): void {
   ipcMain.on('moyu:close-reader', () => closeReaderWin())
 
   /**
-   * 读取书籍原始字节（ArrayBuffer 经结构化克隆传输，避免 base64 膨胀 33%）。
-   * 上限 200MB：超限在渲染侧给出明确提示，不阻塞 UI。
+   * 提供书籍数据源，两种模式：
+   * - mode:'url'（PDF）：返回 moyu-file:// 地址，由 pdf.js 按 Range 分块流式读取。
+   *   数百 MB 的文件因此不进入主进程内存、不经 IPC 复制，页数再多也只在需要时读那几段。
+   * - mode:'buffer'（TXT/EPUB/FB2/CBZ/MD）：整份字节经结构化克隆传输（这些引擎必须拿到完整数据）。
+   *   上限 300MB；超限给出明确提示，不阻塞 UI。
    */
   ipcMain.handle('moyu:read-book', async (_e, p: string) => {
     try {
       if (typeof p !== 'string' || !p) return { ok: false, error: '缺少文件路径' }
       const st = fs.statSync(p)
       if (!st.isFile()) return { ok: false, error: '不是有效文件' }
-      if (st.size > 200 * 1024 * 1024) {
-        return { ok: false, error: `文件过大（${(st.size / 1024 / 1024).toFixed(0)}MB），当前上限 200MB` }
+
+      const ext = path.extname(p).slice(1).toLowerCase()
+      if (ext === 'pdf') {
+        return { ok: true, mode: 'url', url: toBookUrl(p), size: st.size, name: path.basename(p) }
+      }
+
+      const LIMIT = 300 * 1024 * 1024
+      if (st.size > LIMIT) {
+        return {
+          ok: false,
+          error: `文件过大（${(st.size / 1024 / 1024).toFixed(0)}MB），${ext.toUpperCase()} 当前上限 300MB`,
+        }
       }
       const buf = fs.readFileSync(p)
       return {
         ok: true,
+        mode: 'buffer',
         data: buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength),
         size: st.size,
         name: path.basename(p),
@@ -544,6 +670,88 @@ async function waitRenderReady(win: BrowserWindow): Promise<void> {
   }
 }
 
+/** 自检结果落盘到 userData（打包后 app.asar 不可写，实机验证需从用户数据目录取证） */
+function writeTestResult(kind: string, lines: string[]): void {
+  try {
+    const dir = app.getPath('userData')
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(path.join(dir, `test-result-${kind}.txt`), lines.join('\n') + '\n', 'utf8')
+  } catch {
+    /* 忽略：仅诊断用 */
+  }
+}
+
+// ---------------- 跨窗口可见性自检（MOYU_TEST_CROSSWIN=<testpath>） ----------------
+/**
+ * 验证真实链路：主窗口写入书架的书籍，阅读窗口能否读到。
+ * 这是「找不到这本书（可能已被移除）」的回归用例 —— 根因是阅读窗口曾用独立
+ * partition，IndexedDB 与主窗口隔离。此用例必须在共用默认 session 时通过。
+ */
+async function runCrossWinTest(testPath: string): Promise<void> {
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+  const out: string[] = []
+  const main = createWindow()
+  mainWin = main
+  try {
+    await main.loadFile(path.join(__dirname, '../renderer/index.html'), { search: '?theme=dark' })
+    await sleep(3200) // 等 hydrate 建好 IndexedDB
+
+    const seeded = await main.webContents.executeJavaScript(`(async () => {
+      const ext = ${JSON.stringify(testPath)}.split('.').pop().toLowerCase()
+      const req = indexedDB.open('moyu-reader')
+      const db = await new Promise((res, rej) => { req.onsuccess = () => res(req.result); req.onerror = () => rej(req.error) })
+      if (!db.objectStoreNames.contains('books')) { db.close(); return 'no-store' }
+      const tx = db.transaction('books', 'readwrite')
+      tx.objectStore('books').put({
+        id: 'crossbook', title: '跨窗口验证书', author: '测试', format: ext,
+        addedAt: Date.now(), lastReadAt: null, progress: 0, locator: null,
+        coverId: null, coverSeed: 7, shelfId: null, size: 0,
+        sourcePath: ${JSON.stringify(testPath)}, description: '',
+      })
+      await new Promise((res, rej) => { tx.oncomplete = res; tx.onerror = () => rej(tx.error) })
+      db.close()
+      return 'seeded'
+    })()`)
+    out.push(`seed: ${seeded}`)
+
+    openReaderWin('crossbook')
+    await sleep(7000)
+
+    const rw = aliveReader()
+    if (!rw) {
+      out.push('FAIL: 阅读窗口未创建')
+    } else {
+      const st = (await rw.webContents.executeJavaScript(`({
+        title: document.querySelector('.reader-title')?.textContent ?? '',
+        state: (document.querySelector('.reader-state')?.innerText ?? '').replace(/\\s+/g, ' ').slice(0, 60),
+        container: document.querySelector('.text-scroll')
+          ? 'text'
+          : document.querySelector('.pdf-scroll')
+            ? 'pdf'
+            : 'none',
+        chars: (document.querySelector('.reader-body')?.innerText ?? '').length,
+      })`)) as { title: string; state: string; container: string; chars: number }
+      out.push(`reader: ${JSON.stringify(st)}`)
+      const okRun = st.container !== 'none' && !st.state.includes('找不到') && !st.state.includes('无法打开')
+      out.push(okRun ? 'CROSSWIN_OK' : 'CROSSWIN_FAIL')
+      const img = await rw.webContents.capturePage()
+      const buf = img.toPNG()
+      if (buf.length > 2000) {
+        // 优先写工程 screenshots（开发期）；打包后回退到 userData
+        const devShot = path.join(app.getAppPath(), 'screenshots')
+        const target = fs.existsSync(devShot) ? devShot : app.getPath('userData')
+        fs.writeFileSync(path.join(target, 'crosswin-open.png'), buf)
+      }
+    }
+  } catch (e) {
+    out.push(`ERROR ${String(e)}`)
+  }
+  console.log('CROSSWIN_TEST:')
+  for (const l of out) console.log('  ' + l)
+  writeTestResult('crosswin', out)
+  app.exit(0)
+}
+
 // ---------------- 阅读窗口自检（MOYU_TEST_READER="<name>|<query>"） ----------------
 async function runReaderTest(name: string, query: string): Promise<void> {
   const renderer = path.join(__dirname, '../renderer/reader.html')
@@ -633,9 +841,19 @@ async function runReaderTest(name: string, query: string): Promise<void> {
       }
       if (!png) await new Promise((r) => setTimeout(r, 500))
     }
-    if (png) fs.writeFileSync(path.join(outDir, `reader-${name}.png`), png)
+    if (png) {
+      const target = fs.existsSync(outDir) ? outDir : app.getPath('userData')
+      fs.writeFileSync(path.join(target, `reader-${name}.png`), png)
+    }
     console.log(`READER_TEST[${name}]: ${probe}`)
     console.log(`READER_SHOT[${name}]: ${png ? png.length + ' bytes' : 'FAILED'}`)
+    // 内存观测：各进程工作集（KB → MB），用于验证大文件是否被流式读取而非整份驻留
+    const mem = app
+      .getAppMetrics()
+      .map((m) => `${m.type}#${m.pid}=${Math.round((m.memory?.workingSetSize ?? 0) / 1024)}MB`)
+      .join(' ')
+    console.log(`READER_MEM[${name}]: ${mem}`)
+    writeTestResult(`reader-${name}`, [String(probe), `mem: ${mem}`, `shot: ${png ? png.length : 0}`])
     if (logs.length) console.log(`READER_LOG[${name}]: ${logs.slice(0, 3).join(' | ')}`)
   } catch (e) {
     console.log(`READER_TEST[${name}]: FAIL ${String(e)}`)
@@ -851,6 +1069,7 @@ if (!app.requestSingleInstanceLock() && !isShot) {
   app.quit()
 } else {
   app.whenReady().then(() => {
+    registerBookProtocol()
     registerIPC()
     if (isShot) {
       mainWin = createWindow()
@@ -861,6 +1080,10 @@ if (!app.requestSingleInstanceLock() && !isShot) {
       const raw = process.env.MOYU_TEST_RESTORE
       const idx = raw.indexOf('|')
       void runRestoreTest(idx > 0 ? raw.slice(0, idx) : 'txt', idx > 0 ? raw.slice(idx + 1) : '')
+      return
+    }
+    if (process.env.MOYU_TEST_CROSSWIN) {
+      void runCrossWinTest(process.env.MOYU_TEST_CROSSWIN)
       return
     }
     if (process.env.MOYU_TEST_READER) {

@@ -37,7 +37,10 @@ IndexedDB（books/covers/wallpapers/kv） ◀── 位置节流写回（1.2s）
 **加载策略**
 - 文本类（TXT/MD/FB2）：`read-book` 取 ArrayBuffer → 解码（UTF-8/UTF-16 BOM/GB18030 自动探测）→ 分章 → 一次性渲染（章节级 DOM，无虚拟滚动）。
 - EPUB：`ePub(ArrayBuffer)` → `renderTo` iframe（`flow:'scrolled-doc'`）→ `display(CFI)`。
-- PDF：`getDocument` → 只渲染视口 ±600px 内页面（IntersectionObserver）→ canvas 池上限 12 页，超出释放像素。
+- PDF：**不走 IPC 搬字节**，改用自定义协议 `moyu-file://f/<base64url(绝对路径)>` 交给 pdf.js，
+  `getDocument({ url, rangeChunkSize: 512KB, disableAutoFetch: true })` 由引擎按 Range 分块读取
+  （主进程用 `protocol.handle` 返回 206 + `fs.createReadStream(start,end)`）；再只渲染视口 ±600px
+  内页面（IntersectionObserver），canvas 池上限 12 页，超出释放像素。
 - CBZ：`unzipSync` → 图片按自然序 → Blob URL（关闭时统一 revoke）。
 
 ---
@@ -47,7 +50,8 @@ IndexedDB（books/covers/wallpapers/kv） ◀── 位置节流写回（1.2s）
 | 项 | 范围 |
 |---|---|
 | 操作系统 | Windows 10 1809+ / Windows 11（x64），portable 单文件 |
-| 文件大小 | 单本 ≤ 200MB（超出明确拒绝）；EPUB/MOBI 建议 ≤ 50MB |
+| 文件大小 · PDF | **无硬上限**（按需 Range 读取，仅受磁盘与可用内存约束；已实测 267MB / 300 页可正常打开） |
+| 文件大小 · 其它 | 单本 ≤ **300MB**（TXT/EPUB/FB2/CBZ 必须整份解入内存）；EPUB 含大量图片时建议 ≤ 100MB |
 | 文本编码 | UTF-8（含 BOM）、UTF-16 LE/BE、GB18030/GBK |
 | 窗口 | 阅读窗口无边框 + 最大化；支持多显示器/DPI 缩放切换（ResizeObserver 同步 iframe 尺寸） |
 | 快捷键 | `Esc` 退出阅读（先关面板）；`Ctrl/⌘ + +/-` 调整字号 |
@@ -62,7 +66,9 @@ IndexedDB（books/covers/wallpapers/kv） ◀── 位置节流写回（1.2s）
 |---|---|
 | 文件不存在/被移动 | 阅读器显示「无法打开这本书 · 文件不存在或被移动」+ 返回书架 |
 | 无读取权限 | 「没有读取权限」 |
-| 文件 > 200MB | 「文件过大（N MB），当前上限 200MB」，不进入渲染 |
+| TXT/EPUB/FB2/CBZ > 300MB | 「文件过大（N MB），XXX 当前上限 300MB」，不进入渲染 |
+| PDF 文件损坏 / 被占用 | 「PDF 打开失败：…」（pdf.js 原始原因），停留可返回状态 |
+| 阅读窗口读不到书架数据 | 若书在书架存在而阅读窗提示「找不到」，检查窗口 `partition` 是否被改回独立分区（必须共用默认 session） |
 | 不支持的格式（MOBI/AZW3/CBR） | 明确说明原因与建议转换目标 |
 | 书籍无 `sourcePath`（示例书） | 「没有关联的本地文件，请重新导入原始文件」 |
 | EPUB 渲染失败 | 「EPUB 渲染失败：…」并停留可返回状态 |

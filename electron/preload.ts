@@ -16,7 +16,17 @@ export interface MoyuAPI {
   windowControl(action: 'minimize' | 'maximize' | 'close' | 'quit'): void
   openReader(bookId: string): void
   closeReader(): void
-  readBook(p: string): Promise<{ ok: boolean; data?: ArrayBuffer; size?: number; name?: string; error?: string }>
+  readBook(
+    p: string
+  ): Promise<{
+    ok: boolean
+    mode?: 'url' | 'buffer'
+    url?: string
+    data?: ArrayBuffer
+    size?: number
+    name?: string
+    error?: string
+  }>
   onReaderCrashed(cb: () => void): () => void
   recreateWindow(): void
   openExternal(url: string): Promise<void>

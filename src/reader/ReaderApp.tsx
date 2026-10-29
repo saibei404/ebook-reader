@@ -27,6 +27,8 @@ export function ReaderApp() {
   const [error, setError] = useState('')
   const [book, setBook] = useState<Book | null>(null)
   const [data, setData] = useState<ArrayBuffer | null>(null)
+  /** PDF 走 moyu-file:// 流式读取（大文件不进内存/IPC），其它格式用 data */
+  const [sourceUrl, setSourceUrl] = useState('')
   const [chapters, setChapters] = useState<Chapter[] | null>(null)
   const [prefs, setPrefs] = useState<ReaderPrefs>(DEFAULT_PREFS)
   const [percent, setPercent] = useState(0)
@@ -109,15 +111,18 @@ export function ReaderApp() {
 
         const res = await nativeApi.readBook(target.sourcePath)
         if (disposed) return
-        if (!res.ok || !res.data) {
+        // PDF 只需要 url（流式）；其它格式必须拿到完整字节
+        const hasSource = !!res.data || !!res.url
+        if (!res.ok || !hasSource) {
           setError(res.error ?? '读取文件失败')
           setPhase('error')
           return
         }
-        setData(res.data)
+        if (res.url) setSourceUrl(res.url)
+        if (res.data) setData(res.data)
 
         // 文本类格式在此完成预处理；EPUB/PDF/漫画交给各自渲染器
-        if (fmt === 'txt' || fmt === 'md' || fmt === 'fb2') {
+        if (res.data && (fmt === 'txt' || fmt === 'md' || fmt === 'fb2')) {
           if (fmt === 'fb2') {
             setChapters(fb2ToChapters(res.data))
           } else {
@@ -380,7 +385,8 @@ export function ReaderApp() {
             </div>
           </div>
         )}
-        {phase === 'ready' && data && book && (
+        {/* PDF 只有 url（流式），其余格式有 data；两者有其一即可渲染正文 */}
+        {phase === 'ready' && book && (data || sourceUrl) && (
           <>
             {(fmt === 'txt' || fmt === 'md' || fmt === 'fb2') && chapters && (
               <TextReader
@@ -393,7 +399,7 @@ export function ReaderApp() {
                 onLocate={onLocate}
               />
             )}
-            {fmt === 'epub' && (
+            {fmt === 'epub' && data && (
               <Suspense fallback={<div className="reader-state">正在加载 EPUB 引擎…</div>}>
                 <EpubReader
                   data={data}
@@ -415,6 +421,7 @@ export function ReaderApp() {
               <Suspense fallback={<div className="reader-state">正在加载 PDF 引擎…</div>}>
                 <PdfReader
                   data={data}
+                  url={sourceUrl || undefined}
                   scaleMode={prefs.pdfScale}
                   initialLocator={book.locator ?? null}
                   onLocate={onLocate}
@@ -426,7 +433,7 @@ export function ReaderApp() {
                 />
               </Suspense>
             )}
-            {(fmt === 'cbz' || fmt === 'cbr') && (
+            {(fmt === 'cbz' || fmt === 'cbr') && data && (
               <Suspense fallback={<div className="reader-state">正在解包漫画…</div>}>
                 <ComicReader
                   data={data}

@@ -755,8 +755,14 @@ async function runCrossWinTest(testPath: string): Promise<void> {
 // ---------------- 阅读窗口自检（MOYU_TEST_READER="<name>|<query>"） ----------------
 async function runReaderTest(name: string, query: string): Promise<void> {
   const renderer = path.join(__dirname, '../renderer/reader.html')
-  const outDir = path.join(app.getAppPath(), 'screenshots')
-  fs.mkdirSync(outDir, { recursive: true })
+  // 打包后 app.getAppPath() 指向 app.asar（只读），必须回退到 userData 再建目录
+  let outDir = path.join(app.getAppPath(), 'screenshots')
+  try {
+    fs.mkdirSync(outDir, { recursive: true })
+  } catch {
+    outDir = app.getPath('userData')
+    fs.mkdirSync(outDir, { recursive: true })
+  }
   const win = new BrowserWindow({
     width: 1200,
     height: 900,
@@ -1085,8 +1091,14 @@ async function runMaterialCycle(initial: BrowserWindow): Promise<void> {
 async function runShots(win: BrowserWindow): Promise<void> {  const only = process.env.MOYU_SHOT_ONLY?.split(',').map((s) => s.trim()).filter(Boolean)
   const states = only && only.length ? SHOT_STATES.filter((s) => only.some((o) => s.name.startsWith(o))) : SHOT_STATES
   const renderer = path.join(__dirname, '../renderer/index.html')
-  const outDir = path.join(app.getAppPath(), 'screenshots')
-  fs.mkdirSync(outDir, { recursive: true })
+  // 打包后 app.getAppPath() 指向 app.asar（只读），必须回退到 userData 再建目录
+  let outDir = path.join(app.getAppPath(), 'screenshots')
+  try {
+    fs.mkdirSync(outDir, { recursive: true })
+  } catch {
+    outDir = app.getPath('userData')
+    fs.mkdirSync(outDir, { recursive: true })
+  }
   const errors: string[] = []
   win.webContents.on('console-message', (_e, level, message) => {
     if (level >= 3) errors.push(message)

@@ -198,6 +198,122 @@ body {
   margin: 0 0 0.9em;
 }
 
+/* HTML 源（MD / DOCX / FB2）：块级元素之间的换行不应变成可见空行 */
+.text-inner--html {
+  white-space: normal;
+}
+
+.text-inner--html p {
+  text-indent: 0;
+}
+
+.text-inner h4 {
+  margin: 1.2em 0 0.5em;
+  font-size: 1.02em;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.text-inner strong,
+.text-inner b {
+  font-weight: 700;
+}
+
+.text-inner em,
+.text-inner i {
+  font-style: italic;
+}
+
+.text-inner u {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.text-inner s,
+.text-inner del {
+  opacity: 0.65;
+}
+
+.text-inner ul,
+.text-inner ol {
+  margin: 0 0 1em;
+  padding-left: 1.7em;
+}
+
+.text-inner li {
+  margin: 0.3em 0;
+}
+
+.text-inner blockquote {
+  margin: 1em 0;
+  padding: 0.55em 1em;
+  border-left: 3px solid currentColor;
+  border-color: color-mix(in srgb, currentColor 30%, transparent);
+  opacity: 0.86;
+}
+
+.text-inner pre {
+  margin: 1em 0;
+  padding: 0.75em 1em;
+  border-radius: 8px;
+  background: color-mix(in srgb, currentColor 8%, transparent);
+  font-family: ui-monospace, Consolas, "Courier New", monospace;
+  font-size: 0.88em;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-x: auto;
+}
+
+.text-inner code {
+  font-family: ui-monospace, Consolas, "Courier New", monospace;
+  font-size: 0.9em;
+}
+
+.text-inner table {
+  width: 100%;
+  margin: 1em 0 1.2em;
+  border-collapse: collapse;
+  font-size: 0.92em;
+  line-height: 1.55;
+}
+
+.text-inner th,
+.text-inner td {
+  padding: 0.45em 0.7em;
+  border: 1px solid color-mix(in srgb, currentColor 22%, transparent);
+  text-align: left;
+  vertical-align: top;
+}
+
+.text-inner th {
+  font-weight: 600;
+  background: color-mix(in srgb, currentColor 7%, transparent);
+}
+
+.text-inner img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 6px;
+}
+
+.text-inner .doc-title {
+  text-align: center;
+  text-indent: 0;
+  font-size: 1.55em;
+  font-weight: 600;
+  line-height: 1.35;
+  margin: 0.6em 0 0.3em;
+}
+
+.text-inner .doc-subtitle {
+  text-align: center;
+  text-indent: 0;
+  opacity: 0.72;
+  font-size: 0.94em;
+  margin: 0 0 2em;
+}
+
 /* ---------- EPUB ---------- */
 /* 注意：不要给 .epub-host 加 overflow:auto —— epub.js 检测到可滚动容器会切到 div 模式，
    div 模式下内容不渲染（实测黑屏）。保持 iframe 模式，滚动由 epub.js 内部管理。 */

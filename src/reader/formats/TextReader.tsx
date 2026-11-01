@@ -10,6 +10,8 @@ interface Props {
   fontFamily: string
   initialLocator: Locator | null
   onLocate: (loc: Locator) => void
+  /** HTML 源（MD/DOCX/FB2）：空白按 HTML 规则折叠，不用 pre-wrap */
+  htmlMode?: boolean
 }
 
 /**
@@ -18,7 +20,7 @@ interface Props {
  * - 位置以「字符偏移」记录：章节 startChar + 章内滚动比例，字号变化后仍可近似还原；
  * - 滚动上报经 rAF 节流，避免高频 setState 与写库。
  */
-export function TextReader({ chapters, fontSize, lineHeight, maxWidth, fontFamily, initialLocator, onLocate }: Props) {
+export function TextReader({ chapters, fontSize, lineHeight, maxWidth, fontFamily, initialLocator, onLocate, htmlMode = false}: Props) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const restored = useRef(false)
   const rafRef = useRef(0)
@@ -97,7 +99,7 @@ export function TextReader({ chapters, fontSize, lineHeight, maxWidth, fontFamil
   return (
     <div className="text-scroll" ref={scrollRef}>
       <div
-        className="text-inner"
+        className={`text-inner${htmlMode ? ' text-inner--html' : ''}`}
         style={{
           fontSize: `${fontSize}px`,
           lineHeight,

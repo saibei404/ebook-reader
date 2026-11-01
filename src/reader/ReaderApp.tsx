@@ -4,6 +4,7 @@ import { allBooks, getKV } from '@/lib/db'
 import { nativeApi } from '@/lib/native'
 import { createLocatorSaver } from './locator'
 import { decodeText, splitPlainText, markdownToHtml, fb2ToChapters, type Chapter } from './text-utils'
+import { docxToChapters } from './formats/docx'
 import { TextReader } from './formats/TextReader'
 import { DEFAULT_PREFS, FONT_STACK, loadPrefs, savePrefs, themeColors, type ReaderPrefs } from './reader-prefs'
 import './reader.css'
@@ -122,7 +123,12 @@ export function ReaderApp() {
         if (res.data) setData(res.data)
 
         // 文本类格式在此完成预处理；EPUB/PDF/漫画交给各自渲染器
-        if (res.data && (fmt === 'txt' || fmt === 'md' || fmt === 'fb2')) {
+        if (res.data && fmt === 'docx') {
+          // Word 走 mammoth 转语义化 HTML，再按标题切章（与 TXT/MD 共用渲染管线）
+          const { chapters: docChapters, warnings } = await docxToChapters(res.data)
+          if (warnings.length) console.warn('DOCX 转换告警:', warnings.slice(0, 3))
+          setChapters(docChapters)
+        } else if (res.data && (fmt === 'txt' || fmt === 'md' || fmt === 'fb2')) {
           if (fmt === 'fb2') {
             setChapters(fb2ToChapters(res.data))
           } else {
@@ -388,7 +394,7 @@ export function ReaderApp() {
         {/* PDF 只有 url（流式），其余格式有 data；两者有其一即可渲染正文 */}
         {phase === 'ready' && book && (data || sourceUrl) && (
           <>
-            {(fmt === 'txt' || fmt === 'md' || fmt === 'fb2') && chapters && (
+            {(fmt === 'txt' || fmt === 'md' || fmt === 'fb2' || fmt === 'docx') && chapters && (
               <TextReader
                 chapters={chapters}
                 fontSize={prefs.fontSize}
@@ -397,6 +403,7 @@ export function ReaderApp() {
                 fontFamily={FONT_STACK[prefs.fontFamily]}
                 initialLocator={book.locator ?? null}
                 onLocate={onLocate}
+                htmlMode={fmt === 'md' || fmt === 'docx' || fmt === 'fb2'}
               />
             )}
             {fmt === 'epub' && data && (

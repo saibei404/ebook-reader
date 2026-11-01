@@ -24,6 +24,16 @@ type Contents = { document?: Document }
  * - 主题：通过 hooks.content 直接写入 iframe 文档。
  *   （只用 rendition.themes.override 时首章常保持默认黑字黑底，表现为「有内容但看不见」）
  */
+/** #rrggbb / #rgb → 相对亮度 0–1（用于判断主题底色深浅） */
+function hexLuminance(hex: string): number {
+  const h = hex.replace('#', '').trim()
+  const full = h.length === 3 ? h.split('').map((c) => c + c).join('') : h.slice(0, 6)
+  const r = Number.parseInt(full.slice(0, 2), 16) || 0
+  const g = Number.parseInt(full.slice(2, 4), 16) || 0
+  const b = Number.parseInt(full.slice(4, 6), 16) || 0
+  return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255
+}
+
 export function EpubReader({ data, fontSize, lineHeight, bg, fg, initialLocator, onLocate, onToc, onError }: Props) {
   const hostRef = useRef<HTMLDivElement>(null)
   const bookRef = useRef<EpubBook | null>(null)
@@ -110,6 +120,44 @@ export function EpubReader({ data, fontSize, lineHeight, bg, fg, initialLocator,
         const el = img as HTMLImageElement
         el.style.maxWidth = '100%'
         el.style.height = 'auto'
+      })
+
+      // 作者 CSS 常写死深灰字（h4{color:#444}、small{color:#666}）与浅灰底（blockquote{background:#f7f7f8}），
+      // 在深色主题下几乎不可读。这里只对「灰阶」颜色做主题适配，高饱和强调色保持作者原样。
+      const bgLum = hexLuminance(s.bg)
+      const dark = bgLum < 0.5
+      doc.querySelectorAll('body *').forEach((node) => {
+        const el = node as HTMLElement
+        if (el.tagName === 'IMG' || el.tagName === 'svg' || el.tagName === 'SVG') return
+        const cs = doc.defaultView?.getComputedStyle(el)
+        if (!cs) return
+
+        const cm = /rgba?\(\s*(\d+)[,\s]+(\d+)[,\s]+(\d+)(?:[,\s]+([\d.]+))?/.exec(cs.color)
+        if (cm) {
+          const r = Number(cm[1])
+          const g = Number(cm[2])
+          const b = Number(cm[3])
+          const alpha = cm[4] === undefined ? 1 : Number(cm[4])
+          const sat = Math.max(r, g, b) - Math.min(r, g, b)
+          const lum = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255
+          const tooDim = dark ? lum < 0.5 : lum > 0.74
+          if (sat <= 45 && alpha > 0.2 && tooDim) el.style.setProperty('color', 'inherit', 'important')
+        }
+
+        const bm = /rgba?\(\s*(\d+)[,\s]+(\d+)[,\s]+(\d+)(?:[,\s]+([\d.]+))?/.exec(cs.backgroundColor)
+        if (bm) {
+          const r = Number(bm[1])
+          const g = Number(bm[2])
+          const b = Number(bm[3])
+          const alpha = bm[4] === undefined ? 1 : Number(bm[4])
+          const sat = Math.max(r, g, b) - Math.min(r, g, b)
+          const lum = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255
+          const clashes = dark ? lum > 0.62 : lum < 0.35
+          // 灰阶且与主题背景冲突的整块底色 → 换成低透明度中性底，保留「有底色块」的层次感
+          if (sat <= 45 && alpha > 0.2 && clashes) {
+            el.style.setProperty('background-color', dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.05)', 'important')
+          }
+        }
       })
     }
 

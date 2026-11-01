@@ -780,7 +780,52 @@ async function runReaderTest(name: string, query: string): Promise<void> {
       const q = (s) => document.querySelector(s)
       const root = q('.reader-root')
       const state = q('.reader-state')
+      const pick = (sel, d) => {
+        const doc = d || document
+        const el = doc.querySelector(sel)
+        if (!el) return null
+        const cs = doc.defaultView.getComputedStyle(el)
+        return [cs.fontSize, cs.color, cs.fontFamily.split(',')[0].replace(/["']/g, ''), 'w' + cs.fontWeight, 'lh' + cs.lineHeight].join('|')
+      }
+      const ef = document.querySelector('.epub-host iframe')
+      const ed = ef && ef.contentDocument ? ef.contentDocument : null
       return JSON.stringify({
+        styles: {
+          h1: pick('.text-inner h1'), h2: pick('.text-inner h2'),
+          p: pick('.text-inner p:not(.doc-title):not(.doc-subtitle)'),
+          h3: pick('.text-inner h3'),
+          strong: pick('.text-inner strong'), em: pick('.text-inner em'),
+          table: pick('.text-inner table'), th: pick('.text-inner th'),
+          pre: pick('.text-inner pre'), quote: pick('.text-inner blockquote'),
+          epubBody: ed ? pick('body', ed) : null,
+          epubH1: ed ? pick('h1', ed) : null,
+          epubP: ed ? pick('p', ed) : null,
+          epubTable: ed ? pick('table', ed) : null,
+          epubTh: ed ? pick('th', ed) : null,
+          epubStrong: ed ? pick('strong', ed) : null,
+        },
+        counts: (() => {
+          const c = (sel) => document.querySelectorAll(sel).length
+          const ec = (sel) => (ed ? ed.querySelectorAll(sel).length : 0)
+          return {
+            h1: c('.text-inner h1'), h2: c('.text-inner h2'), h3: c('.text-inner h3'), p: c('.text-inner p'),
+            table: c('.text-inner table'), th: c('.text-inner th'), li: c('.text-inner li'),
+            pre: c('.text-inner pre'), quote: c('.text-inner blockquote'), img: c('.text-inner img'),
+            epubH1: ec('h1'), epubP: ec('p'), epubTable: ec('table'), epubTh: ec('th'), epubLi: ec('li'),
+            epubStrong: ec('strong'), epubEm: ec('em'),
+          }
+        })(),
+        colors: (() => {
+          const out = []
+          const add = (el) => { const c = el.ownerDocument.defaultView.getComputedStyle(el).color; if (c && out.indexOf(c) < 0) out.push(c) }
+          document.querySelectorAll('.text-inner span, .text-inner [style*="color"]').forEach(add)
+          if (ed) ed.querySelectorAll('span').forEach(add)
+          return out.slice(0, 8)
+        })(),
+        fonts: (() => {
+          const ok = (f) => { try { return document.fonts.check('16px ' + f) } catch (e) { return false } }
+          return { yahei: ok('"Microsoft YaHei"'), simsun: ok('SimSun'), kaiti: ok('KaiTi'), consolas: ok('Consolas') }
+        })(),
         hasRoot: !!root,
         container: q('.text-scroll') ? 'text' : q('.epub-host') ? 'epub' : q('.pdf-scroll') ? 'pdf' : q('.comic-scroll') ? 'comic' : 'none',
         errorText: state ? state.innerText.replace(/\s+/g, ' ').slice(0, 120) : '',
@@ -854,6 +899,36 @@ async function runReaderTest(name: string, query: string): Promise<void> {
       .join(' ')
     console.log(`READER_MEM[${name}]: ${mem}`)
     writeTestResult(`reader-${name}`, [String(probe), `mem: ${mem}`, `shot: ${png ? png.length : 0}`])
+
+    // 第二屏：滚动到中下部再截一张，用于核对表格/列表/引用等首屏看不到的元素
+    try {
+      await win.webContents.executeJavaScript(`(() => {
+        const host = document.querySelector('.text-scroll, .pdf-scroll, .comic-scroll, .epub-host')
+        if (host) host.scrollTo(0, Math.max(0, (host.scrollHeight - host.clientHeight) * 0.55))
+        const f = document.querySelector('.epub-host iframe')
+        if (f && f.contentWindow) {
+          try { f.contentWindow.scrollTo(0, f.contentDocument.documentElement.scrollHeight * 0.5) } catch (e) {}
+        }
+        return true
+      })()`)
+      await new Promise((r) => setTimeout(r, 900))
+      for (let i = 0; i < 3; i++) {
+        try {
+          const img2 = await win.webContents.capturePage()
+          const buf2 = img2.toPNG()
+          if (buf2.length > 2000) {
+            const target = fs.existsSync(outDir) ? outDir : app.getPath('userData')
+            fs.writeFileSync(path.join(target, `reader-${name}-p2.png`), buf2)
+            break
+          }
+        } catch {
+          /* 重试 */
+        }
+        await new Promise((r) => setTimeout(r, 400))
+      }
+    } catch {
+      /* 第二屏失败不影响主流程 */
+    }
     if (logs.length) console.log(`READER_LOG[${name}]: ${logs.slice(0, 3).join(' | ')}`)
   } catch (e) {
     console.log(`READER_TEST[${name}]: FAIL ${String(e)}`)

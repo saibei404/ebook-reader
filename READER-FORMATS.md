@@ -29,7 +29,8 @@ IndexedDB（books/covers/wallpapers/kv） ◀── 位置节流写回（1.2s）
 | **EPUB** | epub.js 0.3.93 | CFI | 章节/段落（当前实测回落首章，见已知问题） | ✅ 可读，⚠️ 恢复待完善 |
 | **PDF** | pdf.js 4.10（worker 懒渲染） | 页码 1-based | 页码级 | ✅ 可读，✅ 定位可靠 |
 | **FB2** | 自研（XML → 结构化章节） | 字符偏移 | 同 TXT | ✅ 可用 |
-| **MD** | 自研（轻量 Markdown → HTML） | 字符偏移 | 同 TXT | ✅ 可用 |
+| **MD** | 自研（轻量 Markdown → HTML，支持 GFM 表格/列表/引用/代码/行内颜色） | 字符偏移 | 同 TXT | ✅ 可用 |
+| **DOCX** | mammoth 1.13（Word → 语义 HTML，按 h1 切章） | 字符偏移 | 同 TXT | ✅ 可用（颜色/绝对字号/对齐不透传，见下） |
 | **CBZ** | fflate 解包 + 图片序列 | 图片序号 | 页级 | ✅ 可读，⚠️ 恢复时序待调 |
 | **CBR** | — | — | — | ❌ 明确提示转 CBZ |
 | **MOBI / AZW3** | — | — | — | ❌ 明确提示转 EPUB |
@@ -41,6 +42,8 @@ IndexedDB（books/covers/wallpapers/kv） ◀── 位置节流写回（1.2s）
   `getDocument({ url, rangeChunkSize: 512KB, disableAutoFetch: true })` 由引擎按 Range 分块读取
   （主进程用 `protocol.handle` 返回 206 + `fs.createReadStream(start,end)`）；再只渲染视口 ±600px
   内页面（IntersectionObserver），canvas 池上限 12 页，超出释放像素。
+- DOCX：`mammoth.convertToHtml`（浏览器版，按需加载）→ 按 `<h1>` 切章 → 与 TXT/MD 共用渲染管线；
+  表格首行提升为 `<th>`；Word 的字符颜色、绝对字号与段落对齐不透传（mammoth 不解析 `w:color` / `w:sz` / `w:jc`）。
 - CBZ：`unzipSync` → 图片按自然序 → Blob URL（关闭时统一 revoke）。
 
 ---
@@ -79,6 +82,11 @@ IndexedDB（books/covers/wallpapers/kv） ◀── 位置节流写回（1.2s）
 | 窗口重建期间（切原生亚克力） | 沿用旧 URL 恢复原页面；`window-all-closed` 已拦截，不会退出进程 |
 
 ---
+
+## 四之二、排版验证样本
+
+`test-fixtures/` 下按格式分类存放统一内容的验证样本（txt/md/epub/docx/pdf/fb2/cbz），
+生成与验证方法、逐格式实测字号/颜色/结构与已知差异见 `test-fixtures/README.md`。
 
 ## 五、验收标准
 

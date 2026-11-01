@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>排版验证样本</title>
+<style>@page { size: A4; margin: 18mm 16mm; }
+body { font-family: "Songti SC", "SimSun", serif; color: #1a1a1a; line-height: 1.85; }
+h1 { font-size: 26px; margin: 0 0 6px; }
+h2 { font-size: 19px; margin: 26px 0 10px; }
+h3 { font-size: 16px; margin: 16px 0 6px; }
+h4 { font-size: 14px; margin: 12px 0 4px; color: #444; }
+p { margin: 0 0 12px; text-align: justify; text-indent: 2em; }
+p.noindent { text-indent: 0; }
+small { font-size: 12px; color: #666; }
+blockquote { margin: 12px 0; padding: 8px 14px; border-left: 3px solid #b8b8bd; background: #f7f7f8; color: #444; text-indent: 0; }
+pre { font-family: Consolas, monospace; font-size: 12.5px; background: #f4f4f6; padding: 10px 14px; border-radius: 6px; }
+table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 13px; }
+th, td { border: 1px solid #c9c9cf; padding: 6px 10px; text-align: left; }
+th { background: #efeff2; }
+.c { text-align: center; text-indent: 0; } .r { text-align: right; text-indent: 0; }
+.c-red { color: #e5484d; } .c-green { color: #30a46c; } .c-blue { color: #3b82f6; } .c-gray { color: #8b8b93; }
+.cover { text-align: center; margin: 40px 0 30px; }
+.cover .sub { color: #666; font-size: 14px; }
+</style></head><body>
+<div class="cover"><h1>排版验证样本</h1><div class="sub">墨鱼阅读器 · 字体与排版校验　|　墨鱼测试组</div></div><h1>第一章 排版基础</h1><h2>表格</h2><table><tr><th>格式</th><th>引擎</th><th>定位方式</th></tr><tr><td>EPUB</td><td>epub.js</td><td>CFI</td></tr><tr><td>PDF</td><td>pdf.js</td><td>页码</td></tr><tr><td>TXT</td><td>自研</td><td>字符偏移</td></tr></table><h2>字号对照</h2><h3>超大标题 24px / 1.5em</h3><h4>小标题 18px / 1.125em</h4><p>正文基准 17px（阅读器默认），这是最常见的阅读字号。阅读器的排版质量，最终体现在读者是否愿意长时间停留。字号的层级是否清晰、行距是否让人呼吸顺畅、段间距能否区隔语义、中文标</p><p class="noindent"><small>注释小字 13px：用于脚注、来源、辅助说明。</small></p><h2>字体族对照</h2><p>宋体（serif）：阅读器的排版质量，最终体现在读者是否愿意长时间停留。字号的层级是否清晰、行距是否让人呼吸顺畅、段</p><p>黑体（sans-serif）：阅读器的排版质量，最终体现在读者是否愿意长时间停留。字号的层级是否清晰、行距是否让人呼吸顺畅、段</p><p>楷体（楷体/STKaiti）：阅读器的排版质量，最终体现在读者是否愿意长时间停留。字号的层级是否清晰、行距是否让人呼吸顺畅、段</p><p>等宽（monospace）：const reader = new Reader();</p><h2>粗细与倾斜</h2><p>普通 / 粗体 / 斜体 / 粗斜体 / 下划线 / 删除线</p><p class="noindent">普通 / <strong>粗体</strong> / <em>斜体</em> / <strong><em>粗斜体</em></strong> / <u>下划线</u> / <s>删除线</s></p><h2>颜色</h2><p class="noindent"><span class="c-red">红色</span> · <span class="c-green">绿色</span> · <span class="c-blue">蓝色</span> · <span class="c-gray">灰色</span></p><h2>列表</h2><ol><li>打开书籍并恢复上次位置</li><li>调整字号与主题</li><li>退出时自动保存进度</li></ol><ul><li>支持 EPUB 与 PDF</li><li>支持 TXT / Markdown / FB2</li><li>支持 CBZ 漫画包</li></ul><h1>第二章 文种与长文本</h1><h2>中英混排</h2><p>本项目使用 Electron 33 + React 18 构建，单文件安装包约 86.2 MB，支持 EPUB / PDF / TXT / Markdown / FB2 / CBZ 六种格式；价格 ¥199.00（含税），折扣 −15%，好评率 98.6%。</p><p>Typography is the craft of endowing human language with a durable visual form. A well-set paragraph keeps an even colour on the page, avoids rivers of white space, and lets the eye travel without friction from one line to the next.</p><h2>对齐</h2><p class="c">居中对齐 · Centered</p><p class="r">右对齐 · Right aligned</p><h2>引用与代码</h2><blockquote>好的排版是隐形的：读者不会注意到它，只会觉得读起来顺畅。</blockquote><pre>function save(locator) {
+  return db.put(&quot;books&quot;, locator)
+}</pre><h1>第三章 标点与边界</h1><h2>特殊符号</h2><p>省略号…… 破折号—— 中文引号“双引号”与‘单引号’ 西文引号 "double" 与 'single'</p><p>序号 ①②③④⑤ 单位 ℃ ± × ÷ ‰ 箭头 → ← ↑ ↓ 对错 ✓ ✗ 星标 ★ ☆</p><p>全角标点：，。；：？！（）【】《》〈〉「」『』</p><h2>长文本换行</h2><p>长段落换行验证。在城市里读书是一件需要仪式感的事：找一个不被打扰的角落，把手机翻面扣在桌上，让光线从侧面落到纸页或屏幕上。电子阅读器要做的，是把这种仪式感的成本降到最低——打开即读，退出即走，位置不丢，设置记住。在城市里读书是一件需要仪式感的事：找一个不被打扰的角落，把手机翻面扣在桌上，让光线从侧面落到纸页或屏幕上。电子阅读器要做的，是把这种仪式感的成本降到最低——打开即读，退出即走，位置不丢，设置记住。在城市里读书是一件需要仪式感的事：找一个不被打扰的角落，把手机翻面扣在桌上，让光线从侧面落到纸页或屏幕上。电子阅读器要做的，是把这种仪式感的成本降到最低——打开即读，退出即走，位置不丢，设置记住。</p><p>超长 URL（验证断词策略）：https://example.com/a/very/long/path/that/should/not/break/the/layout/but/must/wrap-somewhere</p>
+</body></html>

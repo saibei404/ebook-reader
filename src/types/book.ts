@@ -1,4 +1,4 @@
-export type BookFormat = 'epub' | 'pdf' | 'mobi' | 'azw3' | 'fb2' | 'txt' | 'md' | 'cbz' | 'cbr' | 'unknown'
+export type BookFormat = 'epub' | 'pdf' | 'mobi' | 'azw3' | 'fb2' | 'txt' | 'md' | 'docx' | 'cbz' | 'cbr' | 'unknown'
 
 /**
  * 阅读定位（locator）：跨格式统一的位置抽象，唯一真源。
@@ -94,6 +94,7 @@ export const FORMAT_LABEL: Record<BookFormat, string> = {
   fb2: 'FB2',
   txt: 'TXT',
   md: 'MD',
+  docx: 'DOCX',
   cbz: 'CBZ',
   cbr: 'CBR',
   unknown: 'FILE',
@@ -108,6 +109,7 @@ export function formatFromName(name: string): BookFormat {
   if (ext === 'fb2') return 'fb2'
   if (ext === 'txt') return 'txt'
   if (ext === 'md' || ext === 'markdown') return 'md'
+  if (ext === 'docx' || ext === 'doc') return 'docx'
   if (ext === 'cbz') return 'cbz'
   if (ext === 'cbr') return 'cbr'
   return 'unknown'

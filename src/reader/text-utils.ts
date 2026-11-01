@@ -121,19 +121,76 @@ export function escapeHtml(s: string): string {
 export function markdownToHtml(md: string): string {
   const lines = md.replace(/\r\n?/g, '\n').split('\n')
   const out: string[] = []
-  let inList = false
-  for (const raw of lines) {
+  let inList: 'ul' | 'ol' | false = false
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i]
     const line = raw.trimEnd()
+
+    // 段落级 HTML 对齐（GFM 常见的 <p align="center">…</p>）：转成 style，避免被当纯文本
+    const al = line.match(/^<p\s+align=["'](left|center|right)["']\s*>(.*)<\/p>$/i)
+    if (al) {
+      if (inList) {
+        out.push(`</${inList}>`)
+        inList = false
+      }
+      out.push(`<p style="text-align:${al[1].toLowerCase()}">${inlineMd(al[2])}</p>`)
+      continue
+    }
+
+    // GFM 表格：表头行 + 分隔行（|---|:--:|）→ table/th/td
+    if (/^\s*\|.*\|\s*$/.test(line) && /^\s*\|[\s:|-]+\|\s*$/.test(lines[i + 1] ?? '')) {
+      if (inList) {
+        out.push(`</${inList}>`)
+        inList = false
+      }
+      const cells = line.trim().replace(/^\||\|$/g, '').split('|').map((c) => c.trim())
+      const aligns = (lines[i + 1] ?? '')
+        .trim()
+        .replace(/^\||\|$/g, '')
+        .split('|')
+        .map((c) => {
+          const t = c.trim()
+          if (t.startsWith(':') && t.endsWith(':')) return 'center'
+          if (t.endsWith(':')) return 'right'
+          return 'left'
+        })
+      const styleOf = (idx: number) => (aligns[idx] && aligns[idx] !== 'left' ? ` style="text-align:${aligns[idx]}"` : '')
+      const head = '<tr>' + cells.map((c, idx) => `<th${styleOf(idx)}>${inlineMd(c)}</th>`).join('') + '</tr>'
+      const body: string[] = []
+      let j = i + 2
+      for (; j < lines.length; j++) {
+        const row = lines[j].trimEnd()
+        if (!/^\s*\|.*\|\s*$/.test(row)) break
+        const rc = row.trim().replace(/^\||\|$/g, '').split('|').map((c) => c.trim())
+        body.push('<tr>' + rc.map((c, idx) => `<td${styleOf(idx)}>${inlineMd(c)}</td>`).join('') + '</tr>')
+      }
+      out.push(`<table><thead>${head}</thead><tbody>${body.join('')}</tbody></table>`)
+      i = j - 1
+      continue
+    }
+
+    // 无序列表
     if (/^\s*[-*+]\s+/.test(line)) {
-      if (!inList) {
+      if (inList !== 'ul') {
+        if (inList) out.push(`</${inList}>`)
         out.push('<ul>')
-        inList = true
+        inList = 'ul'
       }
       out.push(`<li>${inlineMd(line.replace(/^\s*[-*+]\s+/, ''))}</li>`)
       continue
     }
+    // 有序列表
+    if (/^\s*\d+[.)]\s+/.test(line)) {
+      if (inList !== 'ol') {
+        if (inList) out.push(`</${inList}>`)
+        out.push('<ol>')
+        inList = 'ol'
+      }
+      out.push(`<li>${inlineMd(line.replace(/^\s*\d+[.)]\s+/, ''))}</li>`)
+      continue
+    }
     if (inList) {
-      out.push('</ul>')
+      out.push(`</${inList}>`)
       inList = false
     }
     if (!line.trim()) {
@@ -156,7 +213,7 @@ export function markdownToHtml(md: string): string {
     }
     out.push(`<p>${inlineMd(line)}</p>`)
   }
-  if (inList) out.push('</ul>')
+  if (inList) out.push(`</${inList}>`)
   return out.join('\n')
 }
 
@@ -166,6 +223,15 @@ function inlineMd(s: string): string {
   t = t.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
   t = t.replace(/(^|[^*])\*([^*]+)\*/g, '$1<em>$2</em>')
   t = t.replace(/\[([^\]]+)\]\((https?:[^)]+)\)/g, '<a href="$2" rel="noreferrer">$1</a>')
+  // 白名单式还原内联 HTML：先整体转义，再只放行「颜色 span / 下划线 / 删除线」，
+  // 颜色值限定为 hex，避免把任意 HTML 当内容执行。
+  // 注意：escapeHtml 会把双引号转成 &quot;，正则必须同时兼容两种形态
+  t = t.replace(
+    /&lt;span style=(?:"|&quot;)color:(#[0-9a-fA-F]{3,8});?(?:"|&quot;)&gt;([\s\S]*?)&lt;\/span&gt;/g,
+    '<span style="color:$1">$2</span>'
+  )
+  t = t.replace(/&lt;u&gt;([\s\S]*?)&lt;\/u&gt;/g, '<u>$1</u>')
+  t = t.replace(/&lt;s&gt;([\s\S]*?)&lt;\/s&gt;/g, '<s>$1</s>')
   return t
 }
 
@@ -180,23 +246,52 @@ export function fb2ToChapters(buf: ArrayBuffer): Chapter[] {
   const sections = Array.from(doc.querySelectorAll('body > section'))
   const chapters: Chapter[] = []
   let cursor = 0
+  /** FB2 行内标记 → HTML（strong/emphasis/strikethrough/code），保留粗斜体 */
+  const inlineFb2 = (el: Element | ChildNode): string => {
+    let out = ''
+    el.childNodes.forEach((n) => {
+      if (n.nodeType === 3) {
+        out += escapeHtml(n.textContent || '')
+        return
+      }
+      if (n.nodeType !== 1) return
+      const tag = (n as Element).tagName.toLowerCase()
+      const inner = inlineFb2(n)
+      if (tag === 'strong') out += `<strong>${inner}</strong>`
+      else if (tag === 'emphasis') out += `<em>${inner}</em>`
+      else if (tag === 'strikethrough') out += `<s>${inner}</s>`
+      else if (tag === 'code') out += `<code>${inner}</code>`
+      else out += inner
+    })
+    return out
+  }
+
+  // 必须按子节点顺序遍历：分别 querySelectorAll 会把 subtitle/p 分批输出，导致标题跑到正文之后
   const renderSection = (sec: Element, depth = 0): string => {
     const parts: string[] = []
-    const title = sec.querySelector(':scope > title')
-    if (title) {
-      const t = (title.textContent || '').trim()
-      if (t) parts.push(`<h${Math.min(3, depth + 1)}>${escapeHtml(t)}</h${Math.min(3, depth + 1)}>`)
-    }
-    sec.querySelectorAll(':scope > p').forEach((p) => {
-      const t = (p.textContent || '').trim()
-      if (t) parts.push(`<p>${escapeHtml(t)}</p>`)
-    })
-    sec.querySelectorAll(':scope > subtitle').forEach((st) => {
-      const t = (st.textContent || '').trim()
-      if (t) parts.push(`<h3>${escapeHtml(t)}</h3>`)
-    })
-    sec.querySelectorAll(':scope > section').forEach((child) => {
-      parts.push(renderSection(child, depth + 1))
+    const hLevel = Math.min(3, depth + 1)
+    Array.from(sec.children).forEach((node) => {
+      const tag = node.tagName.toLowerCase()
+      if (tag === 'title') {
+        const t = (node.textContent || '').trim()
+        if (t) parts.push(`<h${hLevel}>${escapeHtml(t)}</h${hLevel}>`)
+      } else if (tag === 'subtitle') {
+        const t = (node.textContent || '').trim()
+        if (t) parts.push(`<h3>${escapeHtml(t)}</h3>`)
+      } else if (tag === 'p') {
+        const html = inlineFb2(node).trim()
+        if (html) parts.push(`<p>${html}</p>`)
+      } else if (tag === 'cite') {
+        const t = (node.textContent || '').trim()
+        if (t) parts.push(`<blockquote>${escapeHtml(t)}</blockquote>`)
+      } else if (tag === 'code') {
+        const t = (node.textContent || '').trim()
+        if (t) parts.push(`<pre>${escapeHtml(t)}</pre>`)
+      } else if (tag === 'empty-line') {
+        parts.push('<p>&nbsp;</p>')
+      } else if (tag === 'section') {
+        parts.push(renderSection(node, depth + 1))
+      }
     })
     return parts.join('')
   }

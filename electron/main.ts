@@ -693,6 +693,88 @@ function writeTestResult(kind: string, lines: string[]): void {
   }
 }
 
+// ---------------- 搜索自检（MOYU_TEST_SEARCH=<testpath>|<关键词>） ----------------
+async function runSearchTest(testPath: string, keyword: string): Promise<void> {
+  const renderer = path.join(__dirname, '../renderer/reader.html')
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+  const out: string[] = []
+  const win = new BrowserWindow({
+    width: 1180,
+    height: 880,
+    frame: false,
+    show: true,
+    webPreferences: {
+      preload: path.join(__dirname, '../preload/preload.js'),
+      contextIsolation: true,
+      sandbox: false,
+    },
+  })
+  try {
+    await win.loadFile(renderer, { search: `?testpath=${encodeURIComponent(testPath)}` })
+    await sleep(4200)
+
+    const hits = await win.webContents.executeJavaScript(`(async () => {
+      const btn = Array.from(document.querySelectorAll('button')).find(b => (b.textContent || '').includes('搜索'))
+      if (!btn) return -1
+      btn.click()
+      await new Promise(r => setTimeout(r, 300))
+      const input = document.querySelector('.search-input')
+      if (!input) return -2
+      // React 受控组件：走原生 setter 再派发 input 事件才能触发 onChange
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
+      setter.call(input, ${JSON.stringify(keyword)})
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+      await new Promise(r => setTimeout(r, 500))
+      return document.querySelectorAll('.search-hit').length
+    })()`)
+    out.push(`hits: ${hits}`)
+
+    const firstSnippet = await win.webContents.executeJavaScript(
+      `document.querySelector('.search-hit-snippet')?.textContent ?? ''`
+    )
+    out.push(`snippet: ${String(firstSnippet).slice(0, 60)}`)
+
+    // 点击第一条 → 重载并跳到命中位置
+    await win.webContents.executeJavaScript(
+      `(() => {
+        const list = document.querySelectorAll('.search-hit')
+        if (!list.length) return false
+        // 取靠后的命中，避免"第一条在文首"导致滚动量恰好为 0
+        const h = list[Math.min(list.length - 1, 2)]
+        h.click()
+        return true
+      })()`
+    )
+    await sleep(4200)
+    const after = await win.webContents.executeJavaScript(`({
+      scrollTop: Math.round(document.querySelector('.text-scroll')?.scrollTop ?? -1),
+      percent: document.querySelector('.reader-sub')?.textContent?.trim() ?? '',
+      hasJump: location.search.includes('jump='),
+    })`)
+    out.push(`after-jump: ${JSON.stringify(after)}`)
+
+    const a = after as { scrollTop: number; hasJump: boolean }
+    const okRun = Number(hits) > 0 && String(firstSnippet).length > 0 && a.scrollTop > 100
+    out.push(okRun ? 'SEARCH_OK' : 'SEARCH_FAIL')
+
+    try {
+      const img = await win.webContents.capturePage()
+      const devShot = path.join(app.getAppPath(), 'screenshots')
+      const target = fs.existsSync(devShot) ? devShot : app.getPath('userData')
+      fs.writeFileSync(path.join(target, 'reader-search.png'), img.toPNG())
+    } catch {
+      /* ignore */
+    }
+  } catch (e) {
+    out.push(`ERROR ${String(e)}`)
+  }
+  console.log('SEARCH_TEST:')
+  for (const l of out) console.log('  ' + l)
+  writeTestResult('search', out)
+  if (!win.isDestroyed()) win.destroy()
+  app.exit(0)
+}
+
 // ---------------- 排版样本回归（MOYU_TEST_FIXTURES=<test-fixtures 目录>） ----------------
 /** 一条命令跑完 8 份样本，按格式断言容器/结构/字号/颜色，输出通过表 */
 async function runFixtures(dir: string): Promise<void> {
@@ -1270,6 +1352,16 @@ async function runRestoreTest(name: string, testPath: string): Promise<void> {
     const advanced = await w1.webContents.executeJavaScript(`(async () => {
       const text = document.querySelector('.text-scroll')
       if (text) { text.scrollTo(0, 600); return 'scroll:' + Math.round(text.scrollTop) }
+      // PDF / 漫画：滚各自的容器（此前只处理文本类与 EPUB，这两类从未推进过位置）
+      const box = document.querySelector('.pdf-scroll, .comic-scroll')
+      if (box) {
+        const max = box.scrollHeight - box.clientHeight
+        if (max > 40) {
+          box.scrollTo(0, max * 0.5)
+          return 'scroll2:' + Math.round(box.scrollTop) + '/' + Math.round(max)
+        }
+        return 'no-range:' + Math.round(max)
+      }
       // EPUB：目录按钮要等 book.loaded.navigation 完成才渲染，轮询等待
       for (let i = 0; i < 80; i++) {
         const btn = Array.from(document.querySelectorAll('button')).find(b => (b.textContent || '').includes('目录'))
@@ -1362,6 +1454,7 @@ async function runRestoreTest(name: string, testPath: string): Promise<void> {
   }
   console.log(`RESTORE_TEST[${name}]:`)
   for (const l of out) console.log('  ' + l)
+  writeTestResult(`restore-${name}`, out)
   app.exit(0)
 }
 
@@ -1498,6 +1591,12 @@ if (!app.requestSingleInstanceLock() && !isShot) {
       const raw = process.env.MOYU_TEST_RESTORE
       const idx = raw.indexOf('|')
       void runRestoreTest(idx > 0 ? raw.slice(0, idx) : 'txt', idx > 0 ? raw.slice(idx + 1) : '')
+      return
+    }
+    if (process.env.MOYU_TEST_SEARCH) {
+      const raw = process.env.MOYU_TEST_SEARCH
+      const i = raw.indexOf('|')
+      void runSearchTest(i > 0 ? raw.slice(0, i) : raw, i > 0 ? raw.slice(i + 1) : '排版')
       return
     }
     if (process.env.MOYU_TEST_FIXTURES) {

@@ -65,21 +65,27 @@ export function ComicReader({ data, initialLocator, onLocate, onError, onInfo }:
       restored.current = true
       return
     }
+    // 图片解码可能几百毫秒到数秒，rAF 重试窗口不够；改用定时器最多等 4s
     let tries = 0
+    let timer = 0
     const attempt = () => {
-      if (restored.current && tries > 0) return
       tries++
       const root = scrollRef.current
       const target = pageRefs.current[Math.min(idx, urls.length - 1)]
-      if (root && target && target.offsetTop > 0) {
-        root.scrollTop = target.offsetTop
+      // 必须等容器真正撑开（图片加载后才可滚），否则会把 scrollTop 设成 0 并提前结束
+      if (root && target && target.offsetTop > 0 && root.scrollHeight - root.clientHeight > 100) {
+        const max = root.scrollHeight - root.clientHeight
+        const ratio = initialLocator?.scrollRatio
+        // 与 PDF 同口径：优先精确比例，无比例时回到页首
+        root.scrollTop = typeof ratio === 'number' && ratio > 0 ? ratio * max : target.offsetTop
         restored.current = true
         return
       }
-      if (tries < 20) requestAnimationFrame(attempt)
+      if (tries < 80) timer = window.setTimeout(attempt, 50)
       else restored.current = true
     }
-    requestAnimationFrame(attempt)
+    attempt()
+    return () => window.clearTimeout(timer)
   }, [urls, initialLocator])
 
   // 上报
@@ -96,7 +102,15 @@ export function ComicReader({ data, initialLocator, onLocate, onError, onInfo }:
         else break
       }
       const percent = Math.min(1, Math.max(0, (current + 1) / urls.length))
-      onLocate({ kind: 'index', value: current, percent, label: `${current + 1} / ${urls.length} 页`, updatedAt: Date.now() })
+      const scrollRatio = Math.min(1, Math.max(0, root.scrollTop / Math.max(1, root.scrollHeight - root.clientHeight)))
+      onLocate({
+        kind: 'index',
+        value: current,
+        percent,
+        scrollRatio,
+        label: `${current + 1} / ${urls.length} 页`,
+        updatedAt: Date.now(),
+      })
     }
     const onScroll = () => {
       cancelAnimationFrame(raf)

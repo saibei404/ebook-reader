@@ -155,15 +155,20 @@ export function PdfReader({ data, url, scaleMode, initialLocator, onLocate, onEr
       restored.current = true
       return
     }
+    const ratio = initialLocator?.scrollRatio
     let tries = 0
     const attempt = () => {
       tries++
       const root = scrollRef.current
       const el = pageRefs.current[Math.min(page - 1, pages.length - 1)]
-      if (root && el && el.offsetTop > 0) {
-        root.scrollTop = el.offsetTop
-        restored.current = true
-        return
+      if (root) {
+        const max = root.scrollHeight - root.clientHeight
+        if (max > 4 && el && el.offsetTop > 0) {
+          // 优先恢复页内精确位置；无比例时退回页首
+          root.scrollTop = typeof ratio === 'number' && ratio > 0 ? ratio * max : el.offsetTop
+          restored.current = true
+          return
+        }
       }
       if (tries < 20) requestAnimationFrame(attempt)
       else restored.current = true
@@ -185,7 +190,16 @@ export function PdfReader({ data, url, scaleMode, initialLocator, onLocate, onEr
         else break
       }
       const percent = Math.min(1, Math.max(0, current / pages.length))
-      onLocate({ kind: 'page', value: current, percent, label: `第 ${current} 页`, updatedAt: Date.now() })
+      // 全文滚动比例：页码只能定位到页首，页内位置靠它（大页文档尤其明显）
+      const scrollRatio = Math.min(1, Math.max(0, root.scrollTop / Math.max(1, root.scrollHeight - root.clientHeight)))
+      onLocate({
+        kind: 'page',
+        value: current,
+        percent,
+        scrollRatio,
+        label: `第 ${current} 页`,
+        updatedAt: Date.now(),
+      })
     }
     const onScroll = () => {
       cancelAnimationFrame(raf)

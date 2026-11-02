@@ -40,6 +40,8 @@ export function ReaderApp() {
   const [toolbarVisible, setToolbarVisible] = useState(true)
   const [bookmarks, setBookmarks] = useState<Bookmark[]>([])
   const [bmOpen, setBmOpen] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [query, setQuery] = useState('')
   const [hint, setHint] = useState('')
   /** 当前阅读位置（加书签用；由 onLocate 持续更新） */
   const currentLoc = useRef<Locator | null>(null)
@@ -180,6 +182,45 @@ export function ReaderApp() {
     setHint(text)
     window.setTimeout(() => setHint(''), 1800)
   }, [])
+
+  /* ---------- 搜索 ---------- */
+  const canSearch = !!book && (['txt', 'md', 'fb2', 'docx'] as string[]).includes(book.format)
+
+  const searchResults = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q || !chapters || !canSearch) return [] as { id: string; label: string; snippet: string; locator: Locator }[]
+    const total = chapters.reduce((n, c) => n + c.charCount, 0) || 1
+    const out: { id: string; label: string; snippet: string; locator: Locator }[] = []
+    for (const c of chapters) {
+      const text = c.html.replace(/<[^>]+>/g, '')
+      const lower = text.toLowerCase()
+      let idx = lower.indexOf(q)
+      let hits = 0
+      while (idx >= 0 && hits < 5 && out.length < 80) {
+        const inChapter = Math.round((idx / Math.max(1, text.length)) * c.charCount)
+        const offset = c.startChar + inChapter
+        const percent = Math.min(1, Math.max(0, offset / total))
+        out.push({
+          id: `${c.startChar}-${idx}`,
+          label: c.title,
+          snippet: text.slice(Math.max(0, idx - 18), idx + q.length + 26).replace(/\s+/g, ' ').trim(),
+          // 故意不给 scrollRatio：TextReader 恢复时优先用像素比例，
+          // 而搜索只知道字符偏移，带上近似比例反而会把定位拉偏。只给 offset 走章节内精确定位。
+          locator: {
+            kind: 'offset',
+            value: offset,
+            percent,
+            label: c.title,
+            updatedAt: Date.now(),
+          },
+        })
+        idx = lower.indexOf(q, idx + q.length)
+        hits++
+      }
+      if (out.length >= 80) break
+    }
+    return out
+  }, [query, chapters, canSearch])
 
   /* ---------- 书签 ---------- */
   useEffect(() => {
@@ -362,6 +403,13 @@ export function ReaderApp() {
           </button>
         )}
         <button
+          className={`rb${searchOpen ? ' active' : ''}`}
+          onClick={() => setSearchOpen((v) => !v)}
+          title="搜索全文"
+        >
+          搜索
+        </button>
+        <button
           className={`rb${bmOpen ? ' active' : ''}`}
           onClick={() => setBmOpen((v) => !v)}
           title="书签"
@@ -378,6 +426,35 @@ export function ReaderApp() {
       </div>
 
       {hint && <div className="reader-hint">{hint}</div>}
+
+      {/* 搜索 */}
+      {searchOpen && (
+        <div className="epub-nav search-panel">
+          <input
+            className="search-input"
+            autoFocus
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder={canSearch ? '搜索全文…' : '当前格式暂不支持搜索'}
+            disabled={!canSearch}
+          />
+          {!canSearch && (
+            <div className="bm-empty">PDF / CBZ / EPUB 暂不支持全篇搜索，可用目录或书签跳转。</div>
+          )}
+          {canSearch && query.trim() && (
+            <div className="search-count">{searchResults.length} 处匹配</div>
+          )}
+          {searchResults.map((r) => (
+            <button key={r.id} className="search-hit" onClick={() => jumpTo(r.locator)} title={`${r.label}：${r.snippet}`}>
+              <span className="search-hit-label">{r.label}</span>
+              <span className="search-hit-snippet">{r.snippet}</span>
+            </button>
+          ))}
+          {canSearch && query.trim() && searchResults.length === 0 && (
+            <div className="bm-empty">没有找到「{query.trim()}」</div>
+          )}
+        </div>
+      )}
 
       {/* 书签 */}
       {bmOpen && (

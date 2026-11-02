@@ -4,6 +4,7 @@ import { useStore } from '@/store/useStore'
 import { ANIM_MODES, MATERIALS, WALLPAPER_FITS } from '@/types/book'
 import { nativeApi } from '@/lib/native'
 import { formatSize } from '@/lib/format'
+import { exportBackup } from '@/lib/backup'
 import { getDB, setKV } from '@/lib/db'
 import {
   IconSun,
@@ -666,10 +667,34 @@ function DataSection() {
             <span>IndexedDB（本地优先，完全离线）</span>
           </li>
         </ul>
-        <button className="tbtn danger" onClick={clearAll}>
-          <IconTrash size={14} />
-          <span>清空全部数据</span>
-        </button>
+        <div className="backup-actions">
+          <button
+            className="tbtn"
+            onClick={async () => {
+              const r = await exportBackup()
+              if (r.ok) {
+                const size = r.counts ? Math.max(1, Math.round(r.counts.bytes / 1024)) : 0
+                toast(
+                  `已导出：${r.counts?.books ?? 0} 本书 · ${r.counts?.kv ?? 0} 项设置 · ${size}KB`,
+                  'ok'
+                )
+              } else if (!r.canceled) {
+                toast(`导出失败：${r.error ?? '未知错误'}`, 'err')
+              }
+            }}
+          >
+            <IconDatabase size={14} />
+            <span>导出备份</span>
+          </button>
+          <button className="tbtn danger" onClick={clearAll}>
+            <IconTrash size={14} />
+            <span>清空全部数据</span>
+          </button>
+        </div>
+        <p className="set-desc">
+          备份为单个 JSON：含书架元数据、阅读位置、书签与全部设置；不含壁纸与封面图片（封面可按种子重建，
+          壁纸体积大）。清空数据前建议先导出一份。
+        </p>
       </section>
     </>
   )

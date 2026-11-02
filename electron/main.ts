@@ -165,19 +165,14 @@ function aliveReader(): BrowserWindow | null {
  * 使用独立 HTML 入口（reader.html），epub.js / pdf.js 仅在此窗口按需加载，
  * 主窗口包体与内存零负担。
  */
-function openReaderWin(bookId: string): void {
+function openReaderWin(bookId: string, jump?: string): void {
+  const search = `?bookId=${encodeURIComponent(bookId)}${jump ? `&jump=${encodeURIComponent(jump)}` : ''}`
   const existing = aliveReader()
   if (existing) {
     // 已有阅读窗口：切换书籍并聚焦（不重复建窗）
     const base = process.env.ELECTRON_RENDERER_URL
-    const url = base
-      ? `${base}/reader.html?bookId=${encodeURIComponent(bookId)}`
-      : undefined
-    if (url) void existing.loadURL(url)
-    else
-      void existing.loadFile(path.join(__dirname, '../renderer/reader.html'), {
-        search: `?bookId=${encodeURIComponent(bookId)}`,
-      })
+    if (base) void existing.loadURL(`${base}/reader.html${search}`)
+    else void existing.loadFile(path.join(__dirname, '../renderer/reader.html'), { search })
     existing.show()
     existing.focus()
     return
@@ -225,11 +220,8 @@ function openReaderWin(bookId: string): void {
     })
 
     const base = process.env.ELECTRON_RENDERER_URL
-    if (base) void win.loadURL(`${base}/reader.html?bookId=${encodeURIComponent(bookId)}`)
-    else
-      void win.loadFile(path.join(__dirname, '../renderer/reader.html'), {
-        search: `?bookId=${encodeURIComponent(bookId)}`,
-      })
+    if (base) void win.loadURL(`${base}/reader.html${search}`)
+    else void win.loadFile(path.join(__dirname, '../renderer/reader.html'), { search })
   } finally {
     readerOpening = false
   }
@@ -466,9 +458,9 @@ function registerIPC(): void {
     return `data:${mime};base64,${buf.toString('base64')}`
   })
   // ---- 阅读窗口 ----
-  ipcMain.on('moyu:open-reader', (_e, bookId: string) => {
+  ipcMain.on('moyu:open-reader', (_e, bookId: string, jump?: string) => {
     if (typeof bookId !== 'string' || !bookId) return
-    openReaderWin(bookId)
+    openReaderWin(bookId, typeof jump === 'string' ? jump : undefined)
   })
   ipcMain.on('moyu:close-reader', () => closeReaderWin())
 
@@ -514,6 +506,26 @@ function registerIPC(): void {
             ? '没有读取权限'
             : '读取文件失败'
       return { ok: false, error: msg }
+    }
+  })
+
+  /** 保存文本到用户选择的位置（备份导出用）；打包后 asar 只读，必须走对话框写真实路径 */
+  ipcMain.handle('moyu:save-text', async (_e, payload: { name?: string; content?: string }) => {
+    try {
+      if (typeof payload?.content !== 'string') return { ok: false, error: '内容为空' }
+      const name = typeof payload?.name === 'string' && payload.name ? payload.name : 'moyu-backup.json'
+      const opts: Electron.SaveDialogOptions = {
+        title: '导出备份',
+        defaultPath: path.join(app.getPath('documents'), name),
+        filters: [{ name: 'JSON 备份', extensions: ['json'] }],
+      }
+      const w = aliveWin()
+      const r = w ? await dialog.showSaveDialog(w, opts) : await dialog.showSaveDialog(opts)
+      if (r.canceled || !r.filePath) return { ok: false, canceled: true }
+      await fs.promises.writeFile(r.filePath, payload.content, 'utf8')
+      return { ok: true, path: r.filePath }
+    } catch (err) {
+      return { ok: false, error: String((err as Error)?.message ?? err) }
     }
   })
 
@@ -681,6 +693,280 @@ function writeTestResult(kind: string, lines: string[]): void {
   }
 }
 
+// ---------------- 排版样本回归（MOYU_TEST_FIXTURES=<test-fixtures 目录>） ----------------
+/** 一条命令跑完 8 份样本，按格式断言容器/结构/字号/颜色，输出通过表 */
+async function runFixtures(dir: string): Promise<void> {
+  const renderer = path.join(__dirname, '../renderer/reader.html')
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+  const cases = [
+    { name: 'txt-main', rel: 'txt/01-排版全要素.txt', kind: 'text' },
+    { name: 'txt-en', rel: 'txt/02-plain-ascii.txt', kind: 'text' },
+    { name: 'md', rel: 'md/01-排版全要素.md', kind: 'text', needTable: true },
+    { name: 'epub', rel: 'epub/01-排版全要素.epub', kind: 'epub', needTable: true, needColor: true },
+    { name: 'docx', rel: 'docx/01-排版全要素.docx', kind: 'text', needTable: true },
+    { name: 'fb2', rel: 'fb2/01-排版全要素.fb2', kind: 'text' },
+    { name: 'pdf', rel: 'pdf/01-排版全要素.pdf', kind: 'pdf' },
+    { name: 'cbz', rel: 'cbz/01-四页示例.cbz', kind: 'comic' },
+  ]
+
+  const PROBE = `(() => {
+    const q = (s) => document.querySelector(s)
+    const c = (s) => document.querySelectorAll(s).length
+    const st = (s, d) => {
+      const doc = d || document
+      const el = doc.querySelector(s)
+      if (!el) return null
+      const cs = doc.defaultView.getComputedStyle(el)
+      return cs.fontSize + '|' + cs.color
+    }
+    const ef = q('.epub-host iframe')
+    const ed = ef && ef.contentDocument ? ef.contentDocument : null
+    const ec = (s) => (ed ? ed.querySelectorAll(s).length : 0)
+    const colors = []
+    const add = (el) => { const co = el.ownerDocument.defaultView.getComputedStyle(el).color; if (colors.indexOf(co) < 0) colors.push(co) }
+    document.querySelectorAll('.text-inner span, .text-inner [style*="color"]').forEach(add)
+    if (ed) ed.querySelectorAll('span').forEach(add)
+    return JSON.stringify({
+      container: q('.text-scroll') ? 'text' : q('.epub-host') ? 'epub' : q('.pdf-scroll') ? 'pdf' : q('.comic-scroll') ? 'comic' : 'none',
+      err: (q('.reader-state')?.innerText ?? '').replace(/\s+/g, ' ').slice(0, 60),
+      p: c('.text-inner p'), h1: c('.text-inner h1'), h2: c('.text-inner h2'),
+      table: c('.text-inner table'), th: c('.text-inner th'),
+      epubP: ec('p'), epubTable: ec('table'), epubTh: ec('th'),
+      pages: c('.pdf-page, .comic-page, .pdf-page-ph'),
+      body: st('.text-inner p:not(.doc-title):not(.doc-subtitle)') || (ed ? st('p', ed) : null),
+      colors: colors.slice(0, 6),
+    })
+  })()`
+
+  type Row = { name: string; pass: boolean; detail: string }
+  const rows: Row[] = []
+  for (const t of cases) {
+    let row: Row = { name: t.name, pass: false, detail: '未执行' }
+    const win = new BrowserWindow({
+      width: 1100,
+      height: 860,
+      show: false,
+      webPreferences: {
+        preload: path.join(__dirname, '../preload/preload.js'),
+        contextIsolation: true,
+        sandbox: false,
+      },
+    })
+    try {
+      const target = path.join(dir, t.rel)
+      if (!fs.existsSync(target)) throw new Error(`样本缺失：${t.rel}`)
+      await win.loadFile(renderer, { search: `?testpath=${encodeURIComponent(target)}` })
+      await sleep(4200)
+      const raw = await win.webContents.executeJavaScript(PROBE)
+      const r = JSON.parse(String(raw)) as {
+        container: string
+        err: string
+        p: number
+        h1: number
+        h2: number
+        table: number
+        th: number
+        epubP: number
+        epubTable: number
+        epubTh: number
+        pages: number
+        body: string | null
+        colors: string[]
+      }
+
+      const parts: string[] = []
+      let pass = true
+      if (r.container !== t.kind) {
+        pass = false
+        parts.push(`容器 ${r.container}≠${t.kind}`)
+      }
+      if (r.err) {
+        pass = false
+        parts.push(`报错:${r.err}`)
+      }
+      if (t.kind === 'text' && r.p <= 0) {
+        pass = false
+        parts.push('无段落')
+      }
+      if (t.kind === 'epub' && r.epubP <= 0) {
+        pass = false
+        parts.push('无 EPUB 段落')
+      }
+      if ((t.kind === 'pdf' || t.kind === 'comic') && r.pages <= 0) {
+        pass = false
+        parts.push('无页面')
+      }
+      if (t.needTable && r.table + r.epubTable <= 0) {
+        pass = false
+        parts.push('无表格')
+      }
+      if (t.needColor && r.colors.length < 3) {
+        pass = false
+        parts.push(`颜色 ${r.colors.length} 色`)
+      }
+      // PDF / CBZ 是位图渲染，没有可探针的文字样式
+      if (t.kind !== 'pdf' && t.kind !== 'comic' && !r.body) {
+        pass = false
+        parts.push('无正文样式')
+      }
+
+      const stat =
+        t.kind === 'text'
+          ? `p=${r.p} h1=${r.h1} 表${r.table}/th${r.th}`
+          : t.kind === 'epub'
+            ? `p=${r.epubP} 表${r.epubTable}/th${r.epubTh} 色${r.colors.length}`
+            : `${r.pages} 页`
+      row = { name: t.name, pass, detail: pass ? `${r.container} ${stat} ${r.body ?? ''}` : parts.join('；') }
+    } catch (e) {
+      row = { name: t.name, pass: false, detail: String((e as Error)?.message ?? e) }
+    }
+    if (!win.isDestroyed()) win.destroy()
+    rows.push(row)
+    console.log(`FIXTURE ${row.pass ? 'PASS' : 'FAIL'}  ${row.name.padEnd(9)} ${row.detail}`)
+  }
+
+  const passed = rows.filter((r) => r.pass).length
+  const summary = `FIXTURES ${passed}/${rows.length} ${passed === rows.length ? 'ALL_PASS' : 'HAS_FAIL'}`
+  console.log(summary)
+  writeTestResult('fixtures', [...rows.map((r) => `${r.pass ? 'PASS' : 'FAIL'}	${r.name}	${r.detail}`), summary])
+  app.exit(passed === rows.length ? 0 : 1)
+}
+
+// ---------------- 书签自检（MOYU_TEST_BOOKMARK=<testpath>） ----------------
+/** 加书签 → 关窗 → 重开，验证落库与面板恢复 */
+async function runBookmarkTest(testPath: string): Promise<void> {
+  const renderer = path.join(__dirname, '../renderer/reader.html')
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+  const makeWin = () =>
+    new BrowserWindow({
+      width: 1180,
+      height: 880,
+      frame: false,
+      show: true,
+      webPreferences: {
+        preload: path.join(__dirname, '../preload/preload.js'),
+        contextIsolation: true,
+        sandbox: false,
+      },
+    })
+  const out: string[] = []
+  const countBm = (win: BrowserWindow) =>
+    win.webContents.executeJavaScript(`(async () => {
+      const req = indexedDB.open('moyu-reader')
+      const db = await new Promise((res, rej) => { req.onsuccess = () => res(req.result); req.onerror = () => rej(req.error) })
+      const n = await new Promise((res) => {
+        const tx = db.transaction('bookmarks', 'readonly')
+        const rq = tx.objectStore('bookmarks').count()
+        rq.onsuccess = () => res(rq.result)
+        rq.onerror = () => res(-1)
+      })
+      db.close()
+      return n
+    })()`)
+
+  try {
+    // 阶段 1：打开 → 加书签
+    const w1 = makeWin()
+    await w1.loadFile(renderer, { search: `?testpath=${encodeURIComponent(testPath)}` })
+    await sleep(4200)
+    const added = await w1.webContents.executeJavaScript(`(async () => {
+      const btn = Array.from(document.querySelectorAll('button')).find(b => (b.textContent || '').includes('书签'))
+      if (!btn) return 'no-btn'
+      btn.click()
+      await new Promise(r => setTimeout(r, 350))
+      const add = Array.from(document.querySelectorAll('button')).find(b => (b.textContent || '').includes('当前位置'))
+      if (!add) return 'no-add-btn'
+      add.click()
+      await new Promise(r => setTimeout(r, 900))
+      const panel = document.querySelector('.bm-panel')
+      return panel ? panel.innerText.replace(/\s+/g, ' ').slice(0, 100) : 'no-panel'
+    })()`)
+    out.push(`add: ${added}`)
+    const c1 = await countBm(w1)
+    out.push(`db-after-add: ${c1}`)
+    w1.destroy()
+    await sleep(900)
+
+    // 阶段 2：重开同一本书（不带 testpath），书签应仍在
+    const w2 = makeWin()
+    await w2.loadFile(renderer, { search: '?bookId=testbook-txt' })
+    await sleep(4200)
+    const c2 = await countBm(w2)
+    const panel2 = await w2.webContents.executeJavaScript(`(async () => {
+      const btn = Array.from(document.querySelectorAll('button')).find(b => (b.textContent || '').includes('书签'))
+      if (!btn) return 'no-btn'
+      btn.click()
+      await new Promise(r => setTimeout(r, 400))
+      const p = document.querySelector('.bm-panel')
+      return p ? p.innerText.replace(/\s+/g, ' ').slice(0, 100) : 'no-panel'
+    })()`)
+    out.push(`db-after-reopen: ${c2}`)
+    out.push(`panel: ${panel2}`)
+    const okRun = Number(c1) >= 1 && Number(c2) >= 1 && String(panel2).includes('%')
+    out.push(okRun ? 'BOOKMARK_OK' : 'BOOKMARK_FAIL')
+    try {
+      const img = await w2.webContents.capturePage()
+      const devShot = path.join(app.getAppPath(), 'screenshots')
+      const target = fs.existsSync(devShot) ? devShot : app.getPath('userData')
+      fs.writeFileSync(path.join(target, 'reader-bookmark.png'), img.toPNG())
+    } catch {
+      /* ignore */
+    }
+    w2.destroy()
+  } catch (e) {
+    out.push(`ERROR ${String(e)}`)
+  }
+  console.log('BOOKMARK_TEST:')
+  for (const l of out) console.log('  ' + l)
+  writeTestResult('bookmark', out)
+  app.exit(0)
+}
+
+// ---------------- DB 迁移自检（MOYU_TEST_DB=1） ----------------
+/** 校验 IndexedDB 版本与各表条目数：确认 v1→v2 迁移不丢数据 */
+async function runDbCheck(): Promise<void> {
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+  const win = createWindow()
+  mainWin = win
+  const out: string[] = []
+  try {
+    await win.loadFile(path.join(__dirname, '../renderer/index.html'), { search: '?theme=dark' })
+    await sleep(3200)
+    const info = await win.webContents.executeJavaScript(`(async () => {
+      const req = indexedDB.open('moyu-reader')
+      const db = await new Promise((res, rej) => { req.onsuccess = () => res(req.result); req.onerror = () => rej(req.error) })
+      const count = (name) => new Promise((res) => {
+        try {
+          const tx = db.transaction(name, 'readonly')
+          const rq = tx.objectStore(name).count()
+          rq.onsuccess = () => res(rq.result)
+          rq.onerror = () => res(-1)
+        } catch (e) { res(-2) }
+      })
+      const r = {
+        version: db.version,
+        stores: Array.from(db.objectStoreNames),
+        books: await count('books'),
+        covers: await count('covers'),
+        kv: await count('kv'),
+        bookmarks: await count('bookmarks'),
+      }
+      db.close()
+      return JSON.stringify(r)
+    })()`)
+    out.push(String(info))
+    const o = JSON.parse(String(info)) as { version: number; stores: string[]; books: number; bookmarks: number }
+    const okRun = o.version === 2 && o.stores.includes('bookmarks') && o.books > 0 && o.bookmarks >= 0
+    out.push(okRun ? 'DB_CHECK_OK' : 'DB_CHECK_FAIL')
+  } catch (e) {
+    out.push(`ERROR ${String(e)}`)
+  }
+  console.log('DB_CHECK:')
+  for (const l of out) console.log('  ' + l)
+  writeTestResult('db', out)
+  app.exit(0)
+}
+
 // ---------------- 跨窗口可见性自检（MOYU_TEST_CROSSWIN=<testpath>） ----------------
 /**
  * 验证真实链路：主窗口写入书架的书籍，阅读窗口能否读到。
@@ -842,6 +1128,19 @@ async function runReaderTest(name: string, query: string): Promise<void> {
         bodyText: (q('.reader-body')?.innerText ?? '').replace(/\s+/g, ' ').slice(0, 80),
         hostSize: [q('.epub-host')?.clientWidth ?? 0, q('.epub-host')?.clientHeight ?? 0],
         iframeCount: document.querySelectorAll('.reader-body iframe').length,
+        epubScroll: (() => {
+          const host = document.querySelector('.epub-host')
+          if (!host) return null
+          const box = (el) => (el ? [el.scrollHeight, el.clientHeight, el.scrollTop] : null)
+          const view = host.querySelector('.epub-container, .epub-view, .epub-viewer')
+          const f = host.querySelector('iframe')
+          let docBox = null
+          try {
+            const d = f && f.contentDocument
+            if (d) docBox = [d.documentElement.scrollHeight, d.documentElement.clientHeight, d.documentElement.scrollTop || d.body.scrollTop]
+          } catch (e) { docBox = 'blocked' }
+          return { host: box(host), view: box(view), viewTag: view ? view.className : null, doc: docBox }
+        })(),
         epubNode: (() => {
           const host = document.querySelector('.epub-host')
           if (!host) return 'none'
@@ -968,12 +1267,16 @@ async function runRestoreTest(name: string, testPath: string): Promise<void> {
       `document.querySelector('.reader-title')?.textContent ?? ''`
     )
     // 推进阅读位置：文本类滚动；EPUB 通过目录跳到第 2 章（验证 CFI 持久化）
-    const advanced = await w1.webContents.executeJavaScript(`(() => {
+    const advanced = await w1.webContents.executeJavaScript(`(async () => {
       const text = document.querySelector('.text-scroll')
       if (text) { text.scrollTo(0, 600); return 'scroll:' + Math.round(text.scrollTop) }
-      const tocBtn = Array.from(document.querySelectorAll('.reader-top .rb')).find(b => b.textContent.includes('目录'))
-      if (tocBtn) { tocBtn.click(); return 'toc-opened' }
-      return 'noop'
+      // EPUB：目录按钮要等 book.loaded.navigation 完成才渲染，轮询等待
+      for (let i = 0; i < 80; i++) {
+        const btn = Array.from(document.querySelectorAll('button')).find(b => (b.textContent || '').includes('目录'))
+        if (btn) { btn.click(); return 'toc-opened' }
+        await new Promise(r => setTimeout(r, 100))
+      }
+      return 'no-toc-btn'
     })()`)
     if (String(advanced) === 'toc-opened') {
       await sleep(500)
@@ -983,12 +1286,23 @@ async function runRestoreTest(name: string, testPath: string): Promise<void> {
         return 'no-toc-items'
       })()`)
       out.push(`advance ${advanced} -> ${jumped}`)
+      // 章内容器滚动（验证 K3：章内位置也要记住）
+      await sleep(1200)
+      const scrolled = await w1.webContents.executeJavaScript(`(() => {
+        const el = document.querySelector('.epub-container, .epub-view')
+        if (!el) return 'no-container'
+        const max = el.scrollHeight - el.clientHeight
+        el.scrollTo(0, max * 0.6)
+        return 'scroll:' + Math.round(el.scrollTop) + '/' + Math.round(max)
+      })()`)
+      out.push(`inner-scroll ${scrolled}`)
     } else {
       out.push(`advance ${advanced}`)
     }
     await sleep(2600) // > 保存节流 1200ms
     const beforeClose = await w1.webContents.executeJavaScript(`({
       scrollTop: Math.round(document.querySelector('.text-scroll, .epub-host, .pdf-scroll, .comic-scroll')?.scrollTop ?? -1),
+      containerScroll: Math.round(document.querySelector('.epub-container, .epub-view')?.scrollTop ?? -1),
       percent: document.querySelector('.reader-sub')?.textContent?.trim() ?? '',
     })`)
     out.push(`phase1 ${JSON.stringify(beforeClose)} title=${idInfo}`)
@@ -1002,6 +1316,7 @@ async function runRestoreTest(name: string, testPath: string): Promise<void> {
     await sleep(8000) // EPUB 重开需加载引擎 + 定位 + 渲染首章
     const after = await w2.webContents.executeJavaScript(`({
       scrollTop: Math.round(document.querySelector('.text-scroll, .epub-host, .pdf-scroll, .comic-scroll')?.scrollTop ?? -1),
+      containerScroll: Math.round(document.querySelector('.epub-container, .epub-view')?.scrollTop ?? -1),
       percent: document.querySelector('.reader-sub')?.textContent?.trim() ?? '',
       err: document.querySelector('.reader-state')?.innerText?.slice(0, 80) ?? '',
     })`)
@@ -1019,12 +1334,28 @@ async function runRestoreTest(name: string, testPath: string): Promise<void> {
     const got = Number((after as { scrollTop: number }).scrollTop)
     const want = Number((beforeClose as { scrollTop: number }).scrollTop)
     const tol = Math.max(60, want * 0.12)
+    const c1 = Number((beforeClose as { containerScroll: number }).containerScroll)
+    const c2 = Number((after as { containerScroll: number }).containerScroll)
+    if (c1 > 20) {
+      const tolC = Math.max(40, c1 * 0.2)
+      out.push(
+        Math.abs(c2 - c1) <= tolC
+          ? `INNER_SCROLL_OK(expect≈${c1}, got=${c2})`
+          : `INNER_SCROLL_FAIL(expect≈${c1}, got=${c2})`
+      )
+    }
     if (String(cfiCheck) === 'chapter2') out.push('RESTORE_OK(cfi)')
     else if (want > 5 && Math.abs(got - want) <= tol) out.push(`RESTORE_OK(scroll expect≈${want}, got=${got})`)
     else if (want <= 5) out.push('RESTORE_SKIP(无滚动量)')
     else out.push(`RESTORE_FAIL(expect≈${want}, got=${got}, chapter=${cfiCheck})`)
-    const img = await w2.webContents.capturePage()
-    fs.writeFileSync(path.join(app.getAppPath(), 'screenshots', `reader-${name}-restored.png`), img.toPNG())
+    try {
+      const img = await w2.webContents.capturePage()
+      const devShot = path.join(app.getAppPath(), 'screenshots')
+      const target = fs.existsSync(devShot) ? devShot : app.getPath('userData')
+      fs.writeFileSync(path.join(target, `reader-${name}-restored.png`), img.toPNG())
+    } catch {
+      /* 截图失败不影响断言结果 */
+    }
     w2.destroy()
   } catch (e) {
     out.push(`ERROR ${String(e)}`)
@@ -1167,6 +1498,18 @@ if (!app.requestSingleInstanceLock() && !isShot) {
       const raw = process.env.MOYU_TEST_RESTORE
       const idx = raw.indexOf('|')
       void runRestoreTest(idx > 0 ? raw.slice(0, idx) : 'txt', idx > 0 ? raw.slice(idx + 1) : '')
+      return
+    }
+    if (process.env.MOYU_TEST_FIXTURES) {
+      void runFixtures(process.env.MOYU_TEST_FIXTURES)
+      return
+    }
+    if (process.env.MOYU_TEST_BOOKMARK) {
+      void runBookmarkTest(process.env.MOYU_TEST_BOOKMARK)
+      return
+    }
+    if (process.env.MOYU_TEST_DB === '1') {
+      void runDbCheck()
       return
     }
     if (process.env.MOYU_TEST_CROSSWIN) {

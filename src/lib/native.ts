@@ -12,8 +12,12 @@ export interface MoyuAPI {
   pickBooks(): Promise<PickedFile[] | null>
   readFileDataUrl(p: string): Promise<string>
   windowControl(action: 'minimize' | 'maximize' | 'close' | 'quit'): void
-  openReader(bookId: string): void
+  openReader(bookId: string, jump?: string): void
   closeReader(): void
+  saveTextFile(
+    name: string,
+    content: string
+  ): Promise<{ ok: boolean; path?: string; canceled?: boolean; error?: string }>
   readBook(
     p: string
   ): Promise<{

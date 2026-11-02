@@ -14,8 +14,12 @@ export interface MoyuAPI {
   pickBooks(): Promise<PickedFile[] | null>
   readFileDataUrl(p: string): Promise<string>
   windowControl(action: 'minimize' | 'maximize' | 'close' | 'quit'): void
-  openReader(bookId: string): void
+  openReader(bookId: string, jump?: string): void
   closeReader(): void
+  saveTextFile(
+    name: string,
+    content: string
+  ): Promise<{ ok: boolean; path?: string; canceled?: boolean; error?: string }>
   readBook(
     p: string
   ): Promise<{
@@ -73,9 +77,10 @@ const api: MoyuAPI = {
   pickBooks: () => ipcRenderer.invoke('moyu:pick-books'),
   readFileDataUrl: (p) => ipcRenderer.invoke('moyu:read-dataurl', p),
   windowControl: (a) => ipcRenderer.send('moyu:window', a),
-  openReader: (id) => ipcRenderer.send('moyu:open-reader', id),
+  openReader: (id, jump) => ipcRenderer.send('moyu:open-reader', id, jump),
   closeReader: () => ipcRenderer.send('moyu:close-reader'),
   readBook: (p) => ipcRenderer.invoke('moyu:read-book', p),
+  saveTextFile: (name, content) => ipcRenderer.invoke('moyu:save-text', { name, content }),
   onReaderCrashed: (cb) => {
     const h = () => cb()
     ipcRenderer.on('moyu:reader-crashed', h)

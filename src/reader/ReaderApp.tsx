@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { Book, Locator } from '@/types/book'
-import { allBooks, getKV } from '@/lib/db'
+import type { Book, Bookmark, Locator } from '@/types/book'
+import { allBooks, getKV, bookmarksOfBook, putBookmark, deleteBookmark } from '@/lib/db'
 import { nativeApi } from '@/lib/native'
 import { createLocatorSaver } from './locator'
 import { decodeText, splitPlainText, markdownToHtml, fb2ToChapters, type Chapter } from './text-utils'
@@ -38,6 +38,11 @@ export function ReaderApp() {
   const [tocOpen, setTocOpen] = useState(false)
   const [toc, setToc] = useState<{ label: string; href: string; depth: number }[]>([])
   const [toolbarVisible, setToolbarVisible] = useState(true)
+  const [bookmarks, setBookmarks] = useState<Bookmark[]>([])
+  const [bmOpen, setBmOpen] = useState(false)
+  const [hint, setHint] = useState('')
+  /** 当前阅读位置（加书签用；由 onLocate 持续更新） */
+  const currentLoc = useRef<Locator | null>(null)
   const [systemDark, setSystemDark] = useState(false)
   const [pagesInfo, setPagesInfo] = useState<{ pages: number } | null>(null)
 
@@ -45,6 +50,19 @@ export function ReaderApp() {
   const hideTimer = useRef<number | null>(null)
 
   const bookId = useMemo(() => new URLSearchParams(location.search).get('bookId') ?? '', [])
+
+  /** 外部跳转目标（详情页点书签）：临时覆盖书籍自身 locator */
+  const jumpLoc = useMemo<Locator | null>(() => {
+    const raw = new URLSearchParams(location.search).get('jump')
+    if (!raw) return null
+    try {
+      return JSON.parse(decodeURIComponent(atob(raw))) as Locator
+    } catch {
+      return null
+    }
+  }, [])
+  /** 渲染器统一的起始位置：外部跳转 > 书籍上次位置 */
+  const startLocator = jumpLoc ?? null
 
   /* ---------- 载入书籍与偏好 ---------- */
   useEffect(() => {
@@ -153,8 +171,80 @@ export function ReaderApp() {
   const onLocate = useCallback((loc: Locator) => {
     setPercent(loc.percent)
     if (loc.label) setLabel(loc.label)
+    currentLoc.current = loc
     saverRef.current?.push(loc, loc.percent)
   }, [])
+
+  /** 轻提示（阅读器内无 toast 组件） */
+  const flash = useCallback((text: string) => {
+    setHint(text)
+    window.setTimeout(() => setHint(''), 1800)
+  }, [])
+
+  /* ---------- 书签 ---------- */
+  useEffect(() => {
+    const id = book?.id
+    if (!id) return
+    let alive = true
+    void bookmarksOfBook(id)
+      .then((list) => {
+        if (alive) setBookmarks(list)
+      })
+      .catch(() => {
+        if (alive) setBookmarks([])
+      })
+    return () => {
+      alive = false
+    }
+  }, [book?.id])
+
+  const bookmarkLabelOf = (loc: Locator): string => {
+    if (loc.label) return loc.label
+    if (loc.kind === 'page') return `第 ${loc.value} 页`
+    if (loc.kind === 'index') return `第 ${Number(loc.value) + 1} 页`
+    return `${Math.round((loc.percent ?? 0) * 100)}%`
+  }
+
+  const addBookmark = async () => {
+    if (!book) return
+    const loc = currentLoc.current
+    if (!loc) {
+      flash('位置尚未就绪')
+      return
+    }
+    const dup = bookmarks.find(
+      (b) => b.locator.kind === loc.kind && String(b.locator.value) === String(loc.value)
+    )
+    if (dup) {
+      flash('当前位置已有书签')
+      return
+    }
+    const bm: Bookmark = {
+      id: `bm-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+      bookId: book.id,
+      locator: { ...loc, updatedAt: Date.now() },
+      label: bookmarkLabelOf(loc),
+      createdAt: Date.now(),
+    }
+    await putBookmark(bm)
+    setBookmarks((prev) => [...prev, bm])
+    flash('已添加书签')
+  }
+
+  const removeBm = async (id: string) => {
+    await deleteBookmark(id)
+    setBookmarks((prev) => prev.filter((b) => b.id !== id))
+    flash('已删除书签')
+  }
+
+  /** 跳转到书签：重新挂载阅读器并带入 jump 参数（各渲染器无需各自实现跳转） */
+  const jumpTo = (loc: Locator) => {
+    const raw = btoa(encodeURIComponent(JSON.stringify(loc)))
+    const u = new URL(location.href)
+    u.searchParams.set('jump', raw)
+    setBmOpen(false)
+    location.replace(u.toString())
+  }
 
   /* ---------- 退出前刷盘（保证位置不丢） ---------- */
   const exit = useCallback(async () => {
@@ -272,6 +362,13 @@ export function ReaderApp() {
           </button>
         )}
         <button
+          className={`rb${bmOpen ? ' active' : ''}`}
+          onClick={() => setBmOpen((v) => !v)}
+          title="书签"
+        >
+          书签{bookmarks.length > 0 ? ` ${bookmarks.length}` : ''}
+        </button>
+        <button
           className={`rb${settingsOpen ? ' active' : ''}`}
           onClick={() => setSettingsOpen((v) => !v)}
           title="阅读设置"
@@ -279,6 +376,32 @@ export function ReaderApp() {
           排版
         </button>
       </div>
+
+      {hint && <div className="reader-hint">{hint}</div>}
+
+      {/* 书签 */}
+      {bmOpen && (
+        <div className="epub-nav bm-panel">
+          <div className="bm-head">
+            <span>书签（{bookmarks.length}）</span>
+            <button className="rb" onClick={() => void addBookmark()}>
+              + 当前位置
+            </button>
+          </div>
+          {bookmarks.map((b) => (
+            <div key={b.id} className="bm-row">
+              <button className="epub-nav-item bm-main" onClick={() => jumpTo(b.locator)} title={b.label}>
+                <span className="bm-label">{b.label}</span>
+                <span className="bm-meta">{Math.round((b.locator.percent ?? 0) * 100)}%</span>
+              </button>
+              <button className="bm-del" onClick={() => void removeBm(b.id)} title="删除书签">
+                ×
+              </button>
+            </div>
+          ))}
+          {bookmarks.length === 0 && <div className="bm-empty">还没有书签，点「+ 当前位置」添加</div>}
+        </div>
+      )}
 
       {/* 目录 */}
       {tocOpen && toc.length > 0 && (
@@ -401,7 +524,7 @@ export function ReaderApp() {
                 lineHeight={prefs.lineHeight}
                 maxWidth={prefs.maxWidth}
                 fontFamily={FONT_STACK[prefs.fontFamily]}
-                initialLocator={book.locator ?? null}
+                initialLocator={startLocator ?? book.locator ?? null}
                 onLocate={onLocate}
                 htmlMode={fmt === 'md' || fmt === 'docx' || fmt === 'fb2'}
               />
@@ -414,7 +537,7 @@ export function ReaderApp() {
                   lineHeight={prefs.lineHeight}
                   bg={colors.bg}
                   fg={colors.fg}
-                  initialLocator={book.locator ?? null}
+                  initialLocator={startLocator ?? book.locator ?? null}
                   onLocate={onLocate}
                   onToc={setToc}
                   onError={(m) => {
@@ -430,7 +553,7 @@ export function ReaderApp() {
                   data={data}
                   url={sourceUrl || undefined}
                   scaleMode={prefs.pdfScale}
-                  initialLocator={book.locator ?? null}
+                  initialLocator={startLocator ?? book.locator ?? null}
                   onLocate={onLocate}
                   onInfo={setPagesInfo}
                   onError={(m) => {
@@ -444,7 +567,7 @@ export function ReaderApp() {
               <Suspense fallback={<div className="reader-state">正在解包漫画…</div>}>
                 <ComicReader
                   data={data}
-                  initialLocator={book.locator ?? null}
+                  initialLocator={startLocator ?? book.locator ?? null}
                   onLocate={onLocate}
                   onInfo={setPagesInfo}
                   onError={(m) => {

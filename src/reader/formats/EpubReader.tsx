@@ -46,6 +46,12 @@ export function EpubReader({ data, fontSize, lineHeight, bg, fg, initialLocator,
   const lastRef = useRef<{ cfi: string; percent: number }>({ cfi: '', percent: 0 })
   /** 主动上报当前位置（display / 跳章后调用） */
   const reportCurrentRef = useRef<(() => void) | null>(null)
+  /** 位置快照（cfi/href/percent/章内滚动比例/章节名） */
+  const snapshotRef = useRef<
+    (() => { cfi: string; href: string; percent: number; scrollRatio: number; label?: string } | null) | null
+  >(null)
+  /** 目录（章节名快照用） */
+  const tocRef = useRef<{ label: string; href: string; depth: number }[]>([])
 
   styleRef.current = { fontSize, lineHeight, bg, fg }
 
@@ -72,35 +78,79 @@ export function EpubReader({ data, fontSize, lineHeight, bg, fg, initialLocator,
     })
     renditionRef.current = rendition
 
-    /** 读取当前渲染位置并上报（CFI + 百分比），不依赖 relocated 事件 */
-    const reportCurrent = () => {
+    /**
+     * 真正的滚动容器是 epub.js 生成的 .epub-container（scrolled-doc 下 iframe 撑满高度、
+     * 由 container 滚动）。此前读写 host（.epub-host，overflow:hidden）导致 scrollTop 恒为 0，
+     * 章内位置既记不下也恢复不了。
+     */
+    const getScroller = (): HTMLElement | null =>
+      (host.querySelector('.epub-container, .epub-view') as HTMLElement | null) ?? null
+
+    const clamp01 = (n: number) => Math.min(1, Math.max(0, Number.isFinite(n) ? n : 0))
+
+    /** 采集当前位置快照：CFI + href + 全局百分比 + 章内滚动比例 */
+    const snapshot = () => {
       try {
         const cur = (
           rendition as unknown as {
-            currentLocation?: () => { start?: { cfi?: string; index?: number; percentage?: number } }
+            currentLocation?: () => {
+              start?: { cfi?: string; href?: string; index?: number; percentage?: number }
+            }
           }
         ).currentLocation?.()
-        const cfi = cur?.start?.cfi
-        if (!cfi) return
-        const spine = book.spine as unknown as { spineItems?: unknown[]; length?: number }
-        const total = spine?.spineItems?.length ?? spine?.length ?? 1
-        const pct =
-          typeof cur?.start?.percentage === 'number'
-            ? cur.start.percentage
-            : Math.min(1, ((cur?.start?.index ?? 0) + 1) / Math.max(1, total))
-        lastRef.current = { cfi, percent: Math.max(0, pct) }
-        onLocate({
-          kind: 'cfi',
-          value: cfi,
-          percent: Math.max(0, pct),
-          scrollRatio: Math.max(0, pct),
-          updatedAt: Date.now(),
-        })
+        const start = cur?.start
+        const cfi = start?.cfi
+        if (!cfi) return null
+
+        let pct = 0
+        if (locReady.current) {
+          try {
+            pct = book.locations.percentageFromCfi(cfi) || 0
+          } catch {
+            pct = 0
+          }
+        }
+        if (!pct && typeof start?.percentage === 'number') pct = start.percentage
+        if (!pct) {
+          const spine = book.spine as unknown as { spineItems?: unknown[]; length?: number }
+          const total = spine?.spineItems?.length ?? spine?.length ?? 1
+          pct = (Number(start?.index ?? 0) + 1) / Math.max(1, total)
+        }
+
+        const el = getScroller()
+        const scrollRatio = el ? clamp01(el.scrollTop / Math.max(1, el.scrollHeight - el.clientHeight)) : 0
+
+        // 章节名：toc 里 href 前缀匹配（书签展示用）
+        let label = ''
+        const href = start?.href || ''
+        if (href) {
+          const hit = tocRef.current.find((t) => href.endsWith(t.href) || t.href.endsWith(href))
+          label = hit?.label || href.split('/').pop()?.replace(/\.x?html?$/i, '') || ''
+        }
+
+        return { cfi, href, percent: clamp01(pct), scrollRatio, label }
       } catch {
-        /* 读取当前位置失败不影响阅读 */
+        return null
       }
     }
+
+    /** 读取当前渲染位置并上报（不依赖 relocated 事件） */
+    const reportCurrent = () => {
+      const snap = snapshot()
+      if (!snap) return
+      lastRef.current = { cfi: snap.cfi, percent: snap.percent }
+      onLocate({
+        kind: 'cfi',
+        value: snap.cfi,
+        percent: snap.percent,
+        scrollRatio: snap.scrollRatio,
+        href: snap.href || undefined,
+        label: snap.label || undefined,
+        updatedAt: Date.now(),
+      })
+    }
     reportCurrentRef.current = reportCurrent
+    snapshotRef.current = snapshot
 
     const applyStyle = (contents: Contents) => {
       const doc = contents?.document
@@ -196,21 +246,56 @@ export function EpubReader({ data, fontSize, lineHeight, bg, fg, initialLocator,
         ? initialLocator.value
         : undefined
 
+    /** 章内滚动恢复：容器高度依赖 iframe 布局，按帧重试直到可滚 */
+    const restoreScroll = (ratio: number | undefined) => {
+      if (typeof ratio !== 'number' || ratio <= 0.001) return
+      let tries = 0
+      const tick = () => {
+        if (disposed) return
+        const el = getScroller()
+        if (el) {
+          const max = el.scrollHeight - el.clientHeight
+          if (max > 4) {
+            el.scrollTop = clamp01(ratio) * max
+            return
+          }
+        }
+        if (++tries < 30) requestAnimationFrame(tick)
+      }
+      requestAnimationFrame(tick)
+    }
+
+    const targetHref = initialLocator?.href
+
     rendition
-      .display(startCfi)
-      .then(() => {
+      .display(startCfi ?? targetHref)
+      .then(async () => {
         if (disposed) return
         setReady(true)
-        // 主动上报：部分 epub.js 版本的 relocated 在首章不触发，仅靠事件会导致进度恒为 0%
-        reportCurrent()
-        // 恢复像素滚动位置（scrolled-doc 下 iframe 撑高，由宿主容器滚动）
-        const ratio = initialLocator?.scrollRatio
-        if (typeof ratio === 'number' && ratio > 0) {
-          requestAnimationFrame(() => {
-            const max = Math.max(1, host.scrollHeight - host.clientHeight)
-            host.scrollTop = Math.min(max, ratio * max)
-          })
+
+        // 校验：display 后若章节不符（CFI 属于旧版/异常），用 href 二次定位
+        try {
+          const cur = (
+            rendition as unknown as { currentLocation?: () => { start?: { href?: string } } }
+          ).currentLocation?.()
+          const gotHref = cur?.start?.href
+          if (targetHref && gotHref && gotHref !== targetHref) {
+            await rendition.display(targetHref)
+          }
+        } catch {
+          /* 兜底失败时保留当前章，不阻断阅读 */
         }
+        if (disposed) return
+
+        restoreScroll(initialLocator?.scrollRatio)
+
+        // 延迟上报：等 relocated 稳定，避免把"尚未到位的旧位置"写回覆盖目标
+        window.setTimeout(() => {
+          if (disposed) return
+          const snap = snapshot()
+          if (targetHref && snap?.href && snap.href !== targetHref) return
+          reportCurrent()
+        }, 500)
       })
       .catch((e) => {
         if (!disposed) onError(`EPUB 渲染失败：${String((e as Error)?.message ?? e)}`)
@@ -229,6 +314,7 @@ export function EpubReader({ data, fontSize, lineHeight, bg, fg, initialLocator,
           }
         }
         walk((nav.toc as unknown as { label: string; href: string; subitems?: unknown[] }[]) ?? [])
+        tocRef.current = items
         onToc(items)
       })
       .catch(() => {
@@ -272,30 +358,9 @@ export function EpubReader({ data, fontSize, lineHeight, bg, fg, initialLocator,
     const rendition = renditionRef.current
     const book = bookRef.current
     if (!rendition || !book) return
-    const onRelocated = (loc: { start: { cfi: string; href: string; percentage?: number; index?: number } }) => {
-      const cfi = loc?.start?.cfi
-      if (!cfi) return
-      let percent = 0
-      if (locReady.current) {
-        try {
-          percent = book.locations.percentageFromCfi(cfi) || 0
-        } catch {
-          percent = 0
-        }
-      }
-      if (!percent && typeof loc.start.percentage === 'number') percent = loc.start.percentage
-      if (!percent) {
-        const spine = book.spine as unknown as { spineItems?: unknown[]; length?: number }
-        const total = spine?.spineItems?.length ?? spine?.length ?? 1
-        percent = Math.min(1, ((loc.start.index ?? 0) + 1) / total)
-      }
-      const p = Math.min(1, Math.max(0, percent))
-      lastRef.current = { cfi, percent: p }
-      const host = hostRef.current
-      const scrollRatio = host
-        ? Math.min(1, Math.max(0, host.scrollTop / Math.max(1, host.scrollHeight - host.clientHeight)))
-        : p
-      onLocate({ kind: 'cfi', value: cfi, percent: p, scrollRatio, updatedAt: Date.now() })
+    const onRelocated = () => {
+      // 统一走快照：CFI / href / 百分比 / 章内滚动一并取，避免多套口径
+      window.setTimeout(() => reportCurrentRef.current?.(), 120)
     }
     rendition.on('relocated', onRelocated)
     return () => {

@@ -116,7 +116,7 @@ IndexedDB（books/covers/wallpapers/kv） ◀── 位置节流写回（1.2s）
 
 | # | 问题 | 影响 | 修复方向 | 优先级 |
 |---|---|---|---|---|
-| K1 | EPUB 跨会话恢复回落到第一章 | 读完第 2 章重开回到第 1 章 | `display(cfi)` 后校验 `currentLocation().start.href`，不符则用 `spine.get(href)` 二次定位；或升级 epub.js / 改用 href+段落偏移组合 | 高 |
+| K1 | ~~EPUB 跨会话恢复回落到第一章~~ | **已修复（v27）**：根因是滚动容器取了 `.epub-host`（overflow:hidden），实际应为 `.epub-container`；同时 display 后立即上报会覆盖目标位置。现改为快照式采集 + href 二次定位，`RESTORE_OK(cfi)` | 已关闭 |
 | K2 | CBZ/PDF 自动化恢复用例未取到滚动量 | 精度未验证（实现已就位） | 测试脚本改为按目标元素 `offsetTop` 断言，而非容器 `scrollTop` | 中 |
 | K3 | EPUB 章内像素级滚动不进 locator | 同章内滚动位置不恢复 | 监听 iframe 内滚动（`hooks.content` 挂 scroll 监听）累计到 CFI | 中 |
 | K4 | 大 TXT（>3MB）一次性渲染全部章节 | 首次打开可能 1–2s 卡顿 | 引入章节虚拟化（IntersectionObserver + 占位高度） | 中 |

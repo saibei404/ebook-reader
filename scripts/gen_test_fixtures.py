@@ -228,7 +228,7 @@ th { background: #efeff2; font-weight: 600; }
 def xhtml(title, inner):
     return f'''<?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE html>
-<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="zh-CN">
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="zh-CN">
 <head><meta charset="utf-8"/><title>{title}</title>
 <link rel="stylesheet" type="text/css" href="style.css"/></head>
 <body>

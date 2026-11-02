@@ -14,6 +14,8 @@ export interface Locator {
   percent: number
   /** 章节/标题提示（可选，用于恢复时的视觉反馈） */
   label?: string
+  /** EPUB 章节 href（CFI 定位失败时的兜底锚点） */
+  href?: string
   /**
    * 像素滚动比例 0–1（scrollTop / (scrollHeight - clientHeight)）。
    * 文本类格式恢复时优先用它（与渲染高度直接对应，精度高于字符比例）；
@@ -39,6 +41,18 @@ export interface Book {
   size: number
   sourcePath: string | null
   description: string
+}
+
+/** 书签：定位复用 locator，label 存快照（章节调整后仍可读） */
+export interface Bookmark {
+  id: string
+  bookId: string
+  locator: Locator
+  /** 章节名 / 页码快照 */
+  label: string
+  /** 摘录文本（可选，来自当前页首段） */
+  excerpt?: string
+  createdAt: number
 }
 
 export type AnimMode = 'flip' | 'fade' | 'zoom' | 'slide' | 'stack'

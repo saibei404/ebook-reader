@@ -1,8 +1,10 @@
-import { useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { motion } from 'motion/react'
 import { useStore } from '@/store/useStore'
 import { FORMAT_LABEL } from '@/types/book'
 import { formatSize } from '@/lib/format'
+import { bookmarksOfBook, deleteBookmark } from '@/lib/db'
+import type { Bookmark, Locator } from '@/types/book'
 import { nativeApi } from '@/lib/native'
 import { IconX, IconImage, IconShuffle, IconRefresh, IconTrash, IconBook } from './Icons'
 
@@ -11,6 +13,26 @@ export function BookDetail() {
     useStore()
   const fileRef = useRef<HTMLInputElement>(null)
   const book = books.find((b) => b.id === ui.selectedId)
+  const [bms, setBms] = useState<Bookmark[]>([])
+
+  const bookIdNow = book?.id
+  useEffect(() => {
+    if (!bookIdNow) {
+      setBms([])
+      return
+    }
+    let alive = true
+    void bookmarksOfBook(bookIdNow)
+      .then((list) => {
+        if (alive) setBms(list)
+      })
+      .catch(() => {
+        if (alive) setBms([])
+      })
+    return () => {
+      alive = false
+    }
+  }, [bookIdNow])
 
   if (!book) return null
   const coverUrl = (book.coverId ? covers[book.coverId] : null) ?? procCovers[book.id] ?? ''
@@ -99,6 +121,44 @@ export function BookDetail() {
               <span className="detail-val path" title={book.sourcePath}>
                 {book.sourcePath}
               </span>
+            </div>
+          )}
+
+          <div className="detail-row">
+            <span className="detail-key">书签</span>
+            <span className="detail-val">{bms.length} 个</span>
+          </div>
+          {bms.length > 0 && (
+            <div className="detail-bm-list">
+              {bms.slice(0, 5).map((b) => (
+                <div className="detail-bm-row" key={b.id}>
+                  <button
+                    className="detail-bm-jump"
+                    onClick={() => {
+                      if (!nativeApi?.openReader) {
+                        toast('当前环境不支持打开阅读窗口', 'err')
+                        return
+                      }
+                      // 与阅读器内跳转同一编码：base64(encodeURIComponent(json))
+                      nativeApi.openReader(book.id, btoa(encodeURIComponent(JSON.stringify(b.locator))))
+                    }}
+                    title={`跳转到：${b.label}`}
+                  >
+                    {b.label}
+                  </button>
+                  <button
+                    className="detail-bm-del"
+                    onClick={async () => {
+                      await deleteBookmark(b.id)
+                      setBms((prev) => prev.filter((x) => x.id !== b.id))
+                    }}
+                    title="删除书签"
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+              {bms.length > 5 && <div className="detail-bm-more">还有 {bms.length - 5} 个书签…</div>}
             </div>
           )}
 

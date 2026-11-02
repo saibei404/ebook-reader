@@ -2033,3 +2033,77 @@ code {
   background: var(--accent);
   transition: width 0.25s ease;
 }
+
+
+/* 数据分区：导出/清空并排 */
+.backup-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.backup-actions .tbtn {
+  flex: 0 0 auto;
+}
+
+
+/* 详情页书签列表 */
+.detail-bm-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 2px 0 6px;
+  padding: 6px 8px;
+  border-radius: 10px;
+  background: var(--acrylic-card);
+  border: 1px solid var(--acrylic-card-border);
+}
+
+.detail-bm-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.detail-bm-jump {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 6px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-1);
+  font-size: 12.5px;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.detail-bm-jump:hover {
+  background: var(--hover-bg);
+}
+
+.detail-bm-del {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  line-height: 1;
+}
+
+.detail-bm-del:hover {
+  background: rgba(255, 90, 90, 0.16);
+  color: #ff6b6b;
+}
+
+.detail-bm-more {
+  padding: 4px 6px;
+  font-size: 11.5px;
+  color: var(--text-3);
+}

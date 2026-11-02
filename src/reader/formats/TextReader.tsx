@@ -80,7 +80,10 @@ export function TextReader({ chapters, fontSize, lineHeight, maxWidth, fontFamil
         1,
         Math.max(0, el.scrollTop / Math.max(1, el.scrollHeight - el.clientHeight))
       )
-      onLocate({ kind: 'offset', value: offset, percent, scrollRatio, updatedAt: Date.now() })
+      // 带章节名：书签列表与恢复提示都需要可读标签（否则只显示 0%）
+      const idx = secs.indexOf(current)
+      const label = chapters[idx]?.title || ''
+      onLocate({ kind: 'offset', value: offset, percent, scrollRatio, label, updatedAt: Date.now() })
     }
     const onScroll = () => {
       cancelAnimationFrame(rafRef.current)

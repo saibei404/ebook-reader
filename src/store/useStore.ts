@@ -13,6 +13,7 @@ import {
   pruneBrokenWallpapers,
   getKV,
   setKV,
+  deleteBookmarksOfBook,
 } from '@/lib/db'
 import { generateCoverDataUrl } from '@/lib/cover'
 import { seedBooks } from '@/lib/seed'
@@ -445,6 +446,7 @@ export const useStore = create<Store>((setState, getState) => ({
     const book = getState().books.find((b) => b.id === id)
     if (book?.coverId) await deleteCover(book.coverId)
     await deleteBook(id)
+    await deleteBookmarksOfBook(id)
     setState((s) => {
       // 同步清理封面缓存，避免长期使用后内存中累积已删除书籍的 dataURL
       const procCovers = { ...s.procCovers }

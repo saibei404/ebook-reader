@@ -1352,6 +1352,224 @@ async function runAnnotTest(testPath: string): Promise<void> {
   app.exit(0)
 }
 
+// ---------------- 书架分组自检（MOYU_TEST_SHELF=1） ----------------
+/**
+ * 验证 B2：
+ * 1. 新建分组 → chip 出现、kv shelves 落库；
+ * 2. 拖书到 chip → 归组（shelves.bookIds + books.shelfId 双写）；
+ * 3. 组内拖到卡片右半边 → 顺序变化并持久化；
+ * 4. 折叠 → 刷新后仍折叠（不看网格）；
+ * 5. 删除分组 → 书回到未分组，不连带删书。
+ * 用原生 DragEvent + DataTransfer 模拟真实拖拽（React 事件监听挂在 DOM 上）。
+ */
+async function runShelfTest(): Promise<void> {
+  const out: string[] = []
+  const win = createWindow()
+  mainWin = win
+  const readState = () =>
+    win.webContents.executeJavaScript(`(async () => {
+      const db = await new Promise((res, rej) => {
+        const q = indexedDB.open('moyu-reader')
+        q.onsuccess = () => res(q.result)
+        q.onerror = () => rej(q.error)
+      })
+      const getAll = (st) => new Promise((res) => {
+        const tx = db.transaction(st, 'readonly')
+        const rq = tx.objectStore(st).getAll()
+        rq.onsuccess = () => res(rq.result)
+        rq.onerror = () => res([])
+      })
+      const kv = await getAll('kv')
+      const shelves = (kv.find((r) => r.key === 'shelves') || {}).value || []
+      const books = await getAll('books')
+      db.close()
+      return JSON.stringify({
+        shelves,
+        books: books.map((b) => ({ id: b.id, title: b.title, shelfId: b.shelfId })),
+        chips: Array.from(document.querySelectorAll('.shelf-chip')).map((c) => (c.textContent || '').trim()),
+        cards: document.querySelectorAll('.book-card').length,
+        sections: Array.from(document.querySelectorAll('.shelf-section')).map((sec) => ({
+          id: sec.dataset.shelfId,
+          name: sec.querySelector('.shelf-name')?.textContent ?? '',
+          grids: sec.querySelectorAll('.book-grid').length,
+        })),
+      })
+    })()`)
+
+  const logs: string[] = []
+  win.webContents.on('console-message', (_e, level, message) => {
+    if (level >= 2) logs.push(String(message).slice(0, 180))
+  })
+  try {
+    await win.loadFile(path.join(__dirname, '../renderer/index.html'), { search: '?theme=dark' })
+    const ready = await waitFor(win, `document.querySelectorAll('.book-card').length >= 2 ? 'ok' : ''`, 25000)
+    await new Promise((r) => setTimeout(r, 500))
+    if (!ready) {
+      const snap = await win.webContents.executeJavaScript(
+        `JSON.stringify({ text: document.body.innerText.slice(0, 200), boot: !!document.querySelector('.boot'), cards: document.querySelectorAll('.book-card').length })`
+      )
+      out.push(`TIMEOUT ${snap}`)
+      if (logs.length) out.push('logs: ' + logs.join(' | '))
+      throw new Error('页面未就绪')
+    }
+
+    // 1) 新建分组 + 2) 拖入第一本书
+    const step1 = await win.webContents.executeJavaScript(`(async () => {
+      const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+      const add = document.querySelector('.shelf-add')
+      if (!add) return JSON.stringify({ err: 'no-add' })
+      add.click()
+      await sleep(200)
+      const input = document.querySelector('.shelf-new-input')
+      if (!input) return JSON.stringify({ err: 'no-input' })
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
+      setter.call(input, '自动化分组')
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+      await sleep(500)
+
+      const chips = Array.from(document.querySelectorAll('.shelf-chip'))
+      const chip = chips.find((c) => (c.textContent || '').includes('自动化分组'))
+      if (!chip) return JSON.stringify({ err: 'no-chip', chips: chips.map((c) => c.textContent) })
+
+      // 拖两本书进去：一本验证归组，两本才能验证组内重排
+      const cards = Array.from(document.querySelectorAll('.book-card')).slice(0, 2)
+      const ids = cards.map((c) => c.dataset.bookId)
+      for (const c of cards) {
+        const dt = new DataTransfer()
+        c.dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer: dt }))
+        await sleep(200)
+        chip.dispatchEvent(new DragEvent('dragover', { bubbles: true, dataTransfer: dt }))
+        chip.dispatchEvent(new DragEvent('drop', { bubbles: true, dataTransfer: dt }))
+        await sleep(500)
+      }
+      return JSON.stringify({ bookId: ids[0], ids, chips: chips.length })
+    })()`)
+    out.push(`step1 ${step1}`)
+    const s1 = JSON.parse(String(step1)) as { bookId?: string; err?: string }
+    await new Promise((r) => setTimeout(r, 600))
+    const afterDragIn = JSON.parse(String(await readState()))
+
+    // 3) 组内重排：把第一本拖到第二本右半边
+    const step3 = await win.webContents.executeJavaScript(`(async () => {
+      const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+      const chip = Array.from(document.querySelectorAll('.shelf-chip')).find((c) => (c.textContent || '').includes('自动化分组'))
+      chip?.click()
+      await sleep(400)
+      const cards = Array.from(document.querySelectorAll('.book-card'))
+      if (cards.length < 2) return JSON.stringify({ err: 'need-2-cards', n: cards.length })
+      const a = cards[0]
+      const b = cards[1]
+      const aid = a.dataset.bookId
+      const bid = b.dataset.bookId
+      const dt = new DataTransfer()
+      a.dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer: dt }))
+      await sleep(250)
+      const r = b.getBoundingClientRect()
+      // 右半边 → after
+      b.dispatchEvent(new DragEvent('dragover', { bubbles: true, dataTransfer: dt, clientX: r.left + r.width * 0.8, clientY: r.top + r.height / 2 }))
+      await sleep(120)
+      b.dispatchEvent(new DragEvent('drop', { bubbles: true, dataTransfer: dt, clientX: r.left + r.width * 0.8, clientY: r.top + r.height / 2 }))
+      await sleep(800)
+      return JSON.stringify({ aid, bid, order: Array.from(document.querySelectorAll('.book-card')).map((c) => c.dataset.bookId) })
+    })()`)
+    out.push(`step3 ${step3}`)
+    const s3 = JSON.parse(String(step3)) as { aid?: string; bid?: string; order?: string[]; err?: string }
+    const afterReorder = JSON.parse(String(await readState()))
+
+    // 截图：组内视图（重排后）。隐藏窗口的合成帧可能是旧的，先显示并等一拍
+    try {
+      win.show()
+      await new Promise((r) => setTimeout(r, 600))
+      const img = await win.webContents.capturePage()
+      const devShot = path.join(app.getAppPath(), 'screenshots')
+      const target = fs.existsSync(devShot) ? devShot : app.getPath('userData')
+      fs.writeFileSync(path.join(target, 'shelf-groups.png'), img.toPNG())
+    } catch {
+      /* ignore */
+    }
+
+    // 4) 折叠 + 刷新（验证持久化）
+    const step4 = await win.webContents.executeJavaScript(`(async () => {
+      const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+      // 折叠只在「全部」分区视图有组头，先切回去
+      const allChip = Array.from(document.querySelectorAll('.shelf-chip')).find((c) => (c.textContent || '').trim().startsWith('全部'))
+      allChip?.click()
+      await sleep(400)
+      const sec = Array.from(document.querySelectorAll('.shelf-section')).find((s) => (s.querySelector('.shelf-name')?.textContent || '').includes('自动化分组'))
+      const btn = sec?.querySelector('.shelf-collapse')
+      if (!btn) return 'no-collapse-btn'
+      btn.click()
+      await sleep(500)
+      const sec2 = Array.from(document.querySelectorAll('.shelf-section')).find((s) => (s.querySelector('.shelf-name')?.textContent || '').includes('自动化分组'))
+      return sec2 ? String(sec2.querySelectorAll('.book-grid').length) : 'no-section'
+    })()`)
+    out.push(`collapse-grids-after-click ${step4}`)
+
+    win.webContents.reload()
+    await waitFor(win, `document.querySelectorAll('.book-card').length >= 1 ? 'ok' : ''`, 25000)
+    await new Promise((r) => setTimeout(r, 800))
+    const afterReload = JSON.parse(String(await readState()))
+    const collapsedSection = afterReload.sections.find((x: { name: string }) => x.name.includes('自动化分组'))
+
+    // 5) 删除分组
+    const step5 = await win.webContents.executeJavaScript(`(async () => {
+      const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+      const sec = Array.from(document.querySelectorAll('.shelf-section')).find((s) => (s.querySelector('.shelf-name')?.textContent || '').includes('自动化分组'))
+      const del = sec?.querySelector('.shelf-del')
+      if (!del) return 'no-del-btn'
+      del.click()
+      await sleep(800)
+      return 'deleted'
+    })()`)
+    out.push(`step5 ${step5}`)
+    await new Promise((r) => setTimeout(r, 700))
+    const afterDelete = JSON.parse(String(await readState()))
+
+    const shelfIdOf = (st: { shelves: { id: string; name: string; bookIds: string[] }[] }) =>
+      st.shelves.find((sh) => sh.name === '自动化分组')
+    const shelfBefore = shelfIdOf(afterDragIn)
+    const shelfAfterReorder = shelfIdOf(afterReorder)
+
+    const okCreate = !!shelfBefore && afterDragIn.chips.some((c: string) => c.includes('自动化分组'))
+    const okDragIn = !!shelfBefore && shelfBefore.bookIds.length === 2
+    const okBookMirror = !!afterDragIn.books.find(
+      (b: { id: string; shelfId: string | null }) => b.id === s1.bookId && b.shelfId === shelfBefore?.id
+    )
+    const okReorder =
+      !!shelfAfterReorder &&
+      !!s3.order &&
+      s3.order[0] === s3.bid &&
+      s3.order[1] === s3.aid &&
+      shelfAfterReorder.bookIds.indexOf(s3.bid!) < shelfAfterReorder.bookIds.indexOf(s3.aid!)
+    const okCollapse = String(step4) === '0' && !!collapsedSection && collapsedSection.grids === 0
+    const okDelete = !shelfIdOf(afterDelete) && !afterDelete.books.find((b: { id: string }) => b.id === s1.bookId)?.shelfId
+
+    out.push(
+      `checks create=${okCreate} dragIn=${okDragIn} mirror=${okBookMirror} reorder=${okReorder} collapse=${okCollapse} delete=${okDelete}`
+    )
+    out.push(
+      okCreate && okDragIn && okBookMirror && okReorder && okCollapse && okDelete
+        ? 'SHELF_OK'
+        : 'SHELF_FAIL'
+    )
+    try {
+      const img = await win.webContents.capturePage()
+      const devShot = path.join(app.getAppPath(), 'screenshots')
+      const target = fs.existsSync(devShot) ? devShot : app.getPath('userData')
+      fs.writeFileSync(path.join(target, 'shelf-groups-after-delete.png'), img.toPNG())
+    } catch {
+      /* ignore */
+    }
+  } catch (e) {
+    out.push(`ERROR ${String(e)}`)
+  }
+  console.log('SHELF_TEST:')
+  for (const l of out) console.log('  ' + l)
+  writeTestResult('shelf', out)
+  app.exit(0)
+}
+
 // ---------------- 备份导入自检（MOYU_TEST_BACKUP=1） ----------------
 /**
  * 验证 B3（导入部分）：
@@ -2216,6 +2434,10 @@ if (!app.requestSingleInstanceLock() && !isShot) {
     }
     if (process.env.MOYU_TEST_BACKUP === '1') {
       void runBackupTest()
+      return
+    }
+    if (process.env.MOYU_TEST_SHELF === '1') {
+      void runShelfTest()
       return
     }
     if (process.env.MOYU_TEST_DB === '1') {

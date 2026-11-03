@@ -7,9 +7,13 @@ import { BookCard } from './BookCard'
 
 interface Props {
   books: Book[]
+  /** 正在拖拽的书 id（用于开启其它卡片的落点提示） */
+  draggingId?: string | null
+  onDragStartBook?: (id: string) => void
+  onDropOnBook?: (targetId: string, after: boolean) => void
 }
 
-export function BookGrid({ books }: Props) {
+export function BookGrid({ books, draggingId = null, onDragStartBook, onDropOnBook }: Props) {
   const { settings } = useStore()
   const [nonce, setNonce] = useState(0)
   const first = useRef(true)
@@ -34,7 +38,16 @@ export function BookGrid({ books }: Props) {
     >
       <AnimatePresence mode="popLayout">
         {books.map((b, i) => (
-          <BookCard key={b.id} book={b} index={i} itemVariants={v.item} exitVariants={v.exit} />
+          <BookCard
+            key={b.id}
+            book={b}
+            index={i}
+            itemVariants={v.item}
+            exitVariants={v.exit}
+            dragging={!!draggingId && draggingId !== b.id}
+            onDragStartBook={onDragStartBook}
+            onDropOnBook={onDropOnBook}
+          />
         ))}
       </AnimatePresence>
     </motion.div>

@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Book, Settings, AnimMode, MaterialStyle, BookFormat, WallpaperFit } from '@/types/book'
+import type { Book, Settings, AnimMode, MaterialStyle, BookFormat, WallpaperFit, Shelf } from '@/types/book'
 import { formatFromName } from '@/types/book'
 import {
   allBooks,
@@ -35,7 +35,7 @@ export const DEFAULT_SETTINGS: Settings = {
   nativeAcrylic: false,
 }
 
-export type SortKey = 'recent' | 'title' | 'author' | 'progress'
+export type SortKey = 'recent' | 'title' | 'author' | 'progress' | 'manual'
 export type FilterKey = 'all' | 'reading' | 'unread' | 'done'
 
 export interface ToastMsg {
@@ -79,6 +79,8 @@ interface UIState {
   search: string
   sort: SortKey
   filter: FilterKey
+  /** 分组筛选：'all' | 'ungrouped' | shelfId */
+  shelfFilter: string
   selectedId: string | null
   coverEditing: boolean
   wallpaperOpen: boolean
@@ -89,6 +91,8 @@ interface UIState {
 
 interface Store {
   books: Book[]
+  /** 书架分组（数组顺序 = 分组展示顺序） */
+  shelves: Shelf[]
   settings: Settings
   covers: Record<string, string>
   procCovers: Record<string, string>
@@ -101,6 +105,12 @@ interface Store {
   addBooksFromPicked: (picked: PickedFile[]) => Promise<void>
   updateBook: (id: string, patch: Partial<Book>) => Promise<void>
   removeBook: (id: string) => Promise<void>
+  createShelf: (name: string) => Promise<Shelf>
+  renameShelf: (id: string, name: string) => Promise<void>
+  deleteShelf: (id: string) => Promise<void>
+  toggleShelf: (id: string) => Promise<void>
+  moveBookToShelf: (bookId: string, shelfId: string | null) => Promise<void>
+  reorderInShelf: (shelfId: string, dragId: string, targetId: string, after: boolean) => Promise<void>
   setCoverFromFile: (id: string, file: File) => Promise<void>
   randomizeCover: (id: string) => Promise<void>
   resetCover: (id: string) => Promise<void>
@@ -139,10 +149,10 @@ function applyDoc(s: Settings): void {
   root.style.setProperty('--dock-opacity', String(s.dockOpacity))
 }
 
-function readShotOverrides(): Partial<Settings> & { tab?: string; open?: string; cover?: boolean; sec?: string; wp?: string; scroll?: string; netpan?: string } {
+function readShotOverrides(): Partial<Settings> & { tab?: string; open?: string; cover?: boolean; sec?: string; wp?: string; scroll?: string; netpan?: string; shelf?: string } {
   if (typeof location === 'undefined') return {}
   const p = new URLSearchParams(location.search)
-  const o: Partial<Settings> & { tab?: string; open?: string; cover?: boolean; sec?: string; wp?: string; scroll?: string; netpan?: string } = {}
+  const o: Partial<Settings> & { tab?: string; open?: string; cover?: boolean; sec?: string; wp?: string; scroll?: string; netpan?: string; shelf?: string } = {}
   const anim = p.get('anim')
   if (anim && ['flip', 'fade', 'zoom', 'slide', 'stack'].includes(anim)) o.animMode = anim as AnimMode
   const mat = p.get('material')
@@ -155,6 +165,7 @@ function readShotOverrides(): Partial<Settings> & { tab?: string; open?: string;
   if (p.get('open')) o.open = p.get('open') as string
   if (p.get('cover')) o.cover = true
   if (p.get('sec')) o.sec = p.get('sec') as string
+  if (p.get('shelf')) o.shelf = p.get('shelf') as string
   if (p.get('wp')) o.wp = p.get('wp') as string
   if (p.get('scroll')) o.scroll = p.get('scroll') as string
   if (p.get('netpan')) o.netpan = p.get('netpan') as string
@@ -181,6 +192,9 @@ export function selectBooks(books: Book[], ui: UIState): Book[] {
         return a.author.localeCompare(b.author, 'zh-Hans-CN')
       case 'progress':
         return b.progress - a.progress
+      case 'manual':
+        // 手动顺序：分组内已按 shelf.bookIds 排好，这里保持稳定
+        return 0
       default:
         return (b.lastReadAt ?? b.addedAt) - (a.lastReadAt ?? a.addedAt)
     }
@@ -224,6 +238,7 @@ function isDuplicate(book: Pick<Book, 'title' | 'size' | 'sourcePath'>, existing
 
 export const useStore = create<Store>((setState, getState) => ({
   books: [],
+  shelves: [],
   settings: DEFAULT_SETTINGS,
   covers: {},
   procCovers: {},
@@ -247,6 +262,7 @@ export const useStore = create<Store>((setState, getState) => ({
     search: '',
     sort: 'recent',
     filter: 'all',
+    shelfFilter: 'all',
     selectedId: null,
     coverEditing: false,
     wallpaperOpen: false,
@@ -297,6 +313,34 @@ export const useStore = create<Store>((setState, getState) => ({
       }
     }
 
+    // 分组：读 kv 并与 books 的 shelfId 对齐（外部导入/旧数据可能只有一边）
+    const rawShelves = (await getKV<Shelf[]>('shelves')) ?? []
+    const bookIds = new Set(books.map((b) => b.id))
+    let shelfDirty = false
+    const shelves: Shelf[] = rawShelves
+      .filter((sh) => sh && typeof sh.id === 'string')
+      .map((sh) => {
+        const kept = (Array.isArray(sh.bookIds) ? sh.bookIds : []).filter((id) => bookIds.has(id))
+        if (kept.length !== (sh.bookIds?.length ?? 0)) shelfDirty = true
+        return {
+          id: sh.id,
+          name: sh.name || '未命名分组',
+          bookIds: kept,
+          collapsed: !!sh.collapsed,
+          createdAt: sh.createdAt ?? Date.now(),
+        }
+      })
+    // books 里有 shelfId 但分组表没收录 → 补进去（以分组表为真源，避免同一本书出现在两组）
+    for (const b of books) {
+      if (!b.shelfId) continue
+      const target = shelves.find((sh) => sh.id === b.shelfId)
+      if (target && !target.bookIds.includes(b.id)) {
+        target.bookIds.push(b.id)
+        shelfDirty = true
+      }
+    }
+    if (shelfDirty) void setKV('shelves', shelves)
+
     const webdavConfig = await getKV<{ url: string; username: string; password: string } | null>('webdav-config')
     const baiduConfig = await getKV<{ appKey: string; appSecret: string } | null>('baidu-config')
     let baiduAuth = { authorized: false, account: '' }
@@ -333,12 +377,14 @@ export const useStore = create<Store>((setState, getState) => ({
     if (ov.cover) uiPatch.coverEditing = true
     if (ov.wp) uiPatch.wallpaperOpen = true
     if (ov.sec) uiPatch.settingsSection = ov.sec
-    const { tab: _t, open: _o, cover: _c, sec: _s, wp: _w, scroll: _s2, netpan: _n, ...settingsOverride } = ov
+    if (ov.shelf) uiPatch.shelfFilter = ov.shelf
+    const { tab: _t, open: _o, cover: _c, sec: _s, wp: _w, scroll: _s2, netpan: _n, shelf: _sf, ...settingsOverride } = ov
 
     const merged = { ...settings, ...settingsOverride }
     applyDoc(merged)
     setState({
       books,
+      shelves,
       settings: merged,
       procCovers,
       covers: {},
@@ -449,6 +495,11 @@ export const useStore = create<Store>((setState, getState) => ({
     await deleteBook(id)
     await deleteBookmarksOfBook(id)
     await deleteAnnotationsOfBook(id)
+    const shelves = getState().shelves.map((sh) =>
+      sh.bookIds.includes(id) ? { ...sh, bookIds: sh.bookIds.filter((x) => x !== id) } : sh
+    )
+    setState({ shelves })
+    await setKV('shelves', shelves)
     setState((s) => {
       // 同步清理封面缓存，避免长期使用后内存中累积已删除书籍的 dataURL
       const procCovers = { ...s.procCovers }
@@ -463,6 +514,88 @@ export const useStore = create<Store>((setState, getState) => ({
       }
     })
     getState().toast('已移除书籍', 'info')
+  },
+
+  createShelf: async (name) => {
+    const list = getState().shelves
+    const shelf: Shelf = {
+      id: uid('sh'),
+      name: name.trim() || `分组 ${list.length + 1}`,
+      bookIds: [],
+      createdAt: Date.now(),
+    }
+    const next = [...list, shelf]
+    setState({ shelves: next })
+    await setKV('shelves', next)
+    return shelf
+  },
+
+  renameShelf: async (id, name) => {
+    const trimmed = name.trim()
+    if (!trimmed) return
+    const next = getState().shelves.map((sh) => (sh.id === id ? { ...sh, name: trimmed } : sh))
+    setState({ shelves: next })
+    await setKV('shelves', next)
+  },
+
+  deleteShelf: async (id) => {
+    const shelf = getState().shelves.find((sh) => sh.id === id)
+    const next = getState().shelves.filter((sh) => sh.id !== id)
+    setState({ shelves: next })
+    await setKV('shelves', next)
+    // 组内书籍回到「未分组」，不连带删书
+    if (shelf?.bookIds.length) {
+      for (const bookId of shelf.bookIds) {
+        await getState().updateBook(bookId, { shelfId: null })
+      }
+    }
+    getState().toast('已删除分组，组内书籍回到未分组', 'info')
+  },
+
+  toggleShelf: async (id) => {
+    const next = getState().shelves.map((sh) =>
+      sh.id === id ? { ...sh, collapsed: !sh.collapsed } : sh
+    )
+    setState({ shelves: next })
+    await setKV('shelves', next)
+  },
+
+  /**
+   * 归组：从所有分组里摘掉，再插入目标组末尾；同时同步 Book.shelfId。
+   * 拖拽后自动切到「自定义顺序」，否则用户看不到自己刚做的调整。
+   */
+  moveBookToShelf: async (bookId, shelfId) => {
+    const next = getState().shelves.map((sh) => ({
+      ...sh,
+      bookIds: sh.bookIds.filter((x) => x !== bookId),
+    }))
+    if (shelfId) {
+      const target = next.find((sh) => sh.id === shelfId)
+      if (!target) return
+      target.bookIds.push(bookId)
+    }
+    setState({ shelves: next })
+    await setKV('shelves', next)
+    await getState().updateBook(bookId, { shelfId })
+    if (getState().ui.sort !== 'manual') {
+      getState().setUI({ sort: 'manual' })
+      getState().toast('已切换为自定义顺序（拖拽生效）', 'info')
+    }
+  },
+
+  /** 组内重排：把 dragId 插到 targetId 的前/后 */
+  reorderInShelf: async (shelfId, dragId, targetId, after) => {
+    if (dragId === targetId) return
+    const next = getState().shelves.map((sh) => {
+      if (sh.id !== shelfId) return sh
+      const ids = sh.bookIds.filter((x) => x !== dragId)
+      const at = ids.indexOf(targetId)
+      if (at < 0) return sh
+      ids.splice(after ? at + 1 : at, 0, dragId)
+      return { ...sh, bookIds: ids }
+    })
+    setState({ shelves: next })
+    await setKV('shelves', next)
   },
 
   setCoverFromFile: async (id, file) => {

@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { motion, useMotionValue, useSpring, useTransform } from 'motion/react'
 import type { Book } from '@/types/book'
 import { FORMAT_LABEL } from '@/types/book'
@@ -10,10 +10,76 @@ interface Props {
   index: number
   itemVariants: any
   exitVariants: any
+  /** 分组拖拽：开始拖动 / 拖到本卡片（after=true 表示插到后面） */
+  onDragStartBook?: (id: string) => void
+  onDropOnBook?: (targetId: string, after: boolean) => void
+  /** 是否正在拖拽（用于开启落点提示，避免平时也注册 dragover） */
+  dragging?: boolean
 }
 
-export function BookCard({ book, index, itemVariants, exitVariants }: Props) {
+export function BookCard({
+  book,
+  index,
+  itemVariants,
+  exitVariants,
+  onDragStartBook,
+  onDropOnBook,
+  dragging = false,
+}: Props) {
   const { covers, procCovers, openBook, removeBook, setUI } = useStore()
+  /** 落点提示：'before' | 'after' | null */
+  const [dropSide, setDropSide] = useState<'before' | 'after' | null>(null)
+  const dropSideRef = useRef<'before' | 'after' | null>(null)
+  const cardRef = useRef<HTMLDivElement>(null)
+  const setSide = (s: 'before' | 'after' | null) => {
+    dropSideRef.current = s
+    setDropSide(s)
+  }
+
+  /**
+   * 拖拽事件必须走原生监听：motion.div 的 onDragStart 是 pan 手势
+   * （`(event, info: PanInfo)`），与 HTML5 drag 的签名冲突，直接传会类型报错。
+   */
+  useEffect(() => {
+    const el = cardRef.current
+    if (!el) return
+    const onStart = (e: DragEvent) => {
+      if (!onDragStartBook) return
+      e.dataTransfer?.setData('text/plain', book.id)
+      if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move'
+      onDragStartBook?.(book.id)
+    }
+    const onOver = (e: DragEvent) => {
+      if (!dragging || !onDropOnBook) return
+      e.preventDefault()
+      e.stopPropagation()
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
+      const r = el.getBoundingClientRect()
+      setSide(e.clientX - r.left > r.width / 2 ? 'after' : 'before')
+    }
+    const onLeave = () => setSide(null)
+    const onDrop = (e: DragEvent) => {
+      if (!onDropOnBook) return
+      e.preventDefault()
+      e.stopPropagation()
+      const side = dropSideRef.current ?? 'before'
+      setSide(null)
+      onDropOnBook(book.id, side === 'after')
+    }
+    const onEnd = () => setSide(null)
+    el.addEventListener('dragstart', onStart)
+    el.addEventListener('dragover', onOver)
+    el.addEventListener('dragleave', onLeave)
+    el.addEventListener('drop', onDrop)
+    el.addEventListener('dragend', onEnd)
+    return () => {
+      el.removeEventListener('dragstart', onStart)
+      el.removeEventListener('dragover', onOver)
+      el.removeEventListener('dragleave', onLeave)
+      el.removeEventListener('drop', onDrop)
+      el.removeEventListener('dragend', onEnd)
+    }
+  }, [dragging, onDragStartBook, onDropOnBook, book.id, book.title])
   const coverUrl = (book.coverId ? covers[book.coverId] : null) ?? procCovers[book.id] ?? ''
 
   const rx = useMotionValue(0)
@@ -49,13 +115,17 @@ export function BookCard({ book, index, itemVariants, exitVariants }: Props) {
 
   return (
     <motion.div
-      className="book-card"
+      className={`book-card${dropSide ? ` drop-${dropSide}` : ''}${onDragStartBook ? ' draggable' : ''}`}
       custom={index}
       variants={itemVariants}
       exit={exitVariants}
       layout="position"
       whileHover={{ y: -10, scale: 1.035, transition: { type: 'spring', stiffness: 400, damping: 26 } }}
       onClick={() => openBook(book.id)}
+      ref={cardRef}
+      data-book-id={book.id}
+      /* 必须始终可拖：否则第一本书永远发起不了 dragstart（dragging 只能由拖动本身产生） */
+      draggable={!!onDragStartBook}
     >
       <motion.div
         className="book-card-inner"

@@ -2316,3 +2316,236 @@ code {
   gap: 8px;
   margin-top: 8px;
 }
+
+/* ---------- 书架分组（B2） ---------- */
+.shelf-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 10px 0 2px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding-bottom: 2px;
+}
+
+.shelf-bar::-webkit-scrollbar {
+  display: none;
+}
+
+.shelf-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: color-mix(in srgb, var(--text-1) 6%, transparent);
+  color: var(--text-2);
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: background 0.16s ease, color 0.16s ease;
+}
+
+.shelf-chip:hover {
+  background: color-mix(in srgb, var(--text-1) 10%, transparent);
+  color: var(--text-1);
+}
+
+.shelf-chip.active {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  color: var(--text-1);
+}
+
+.shelf-chip.droppable {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+}
+
+.shelf-chip-count {
+  font-size: 11px;
+  opacity: 0.7;
+  font-variant-numeric: tabular-nums;
+}
+
+.shelf-add {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  padding: 0 9px;
+  border-radius: 8px;
+  border: 1px dashed var(--acrylic-card-border);
+  background: transparent;
+  color: var(--text-2);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.shelf-add:hover {
+  color: var(--text-1);
+  border-color: color-mix(in srgb, var(--text-1) 30%, transparent);
+}
+
+.shelf-new-input {
+  flex: none;
+  width: 120px;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 8px;
+  border: 1px solid var(--accent);
+  background: var(--acrylic-card);
+  color: var(--text-1);
+  font-size: 12.5px;
+  outline: none;
+}
+
+.shelf-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.shelf-section {
+  border-radius: 12px;
+  padding: 2px 0 6px;
+  border: 1px solid transparent;
+  transition: border-color 0.16s ease, background 0.16s ease;
+}
+
+/* 拖拽中把可放置区域可视化出来 */
+.shelf-section.droppable {
+  border-color: color-mix(in srgb, var(--text-1) 10%, transparent);
+  background: color-mix(in srgb, var(--text-1) 2.5%, transparent);
+}
+
+.shelf-section.drop-active {
+  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.shelf-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px 8px;
+}
+
+.shelf-collapse {
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+}
+
+.shelf-collapse:hover {
+  background: color-mix(in srgb, var(--text-1) 8%, transparent);
+  color: var(--text-1);
+}
+
+.shelf-caret {
+  display: inline-block;
+  font-size: 11px;
+  transition: transform 0.16s ease;
+}
+
+.shelf-caret.collapsed {
+  transform: rotate(-90deg);
+}
+
+.shelf-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-1);
+  cursor: default;
+  user-select: none;
+}
+
+.shelf-count {
+  font-size: 11.5px;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.shelf-del {
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-3);
+  opacity: 0;
+  cursor: pointer;
+  transition: opacity 0.16s ease;
+}
+
+.shelf-head:hover .shelf-del {
+  opacity: 1;
+}
+
+.shelf-del:hover {
+  background: rgba(239, 68, 68, 0.16);
+  color: #ef4444;
+}
+
+.shelf-rename {
+  height: 24px;
+  padding: 0 6px;
+  border-radius: 6px;
+  border: 1px solid var(--accent);
+  background: var(--acrylic-card);
+  color: var(--text-1);
+  font-size: 13px;
+  outline: none;
+}
+
+.shelf-empty {
+  display: grid;
+  place-items: center;
+  min-height: 72px;
+  border-radius: 10px;
+  border: 1px dashed var(--acrylic-card-border);
+  color: var(--text-2);
+  font-size: 12.5px;
+  margin-bottom: 4px;
+}
+
+/* 拖拽落点指示（卡片左右半边） */
+.book-card.draggable {
+  cursor: grab;
+}
+
+.book-card.drop-before::before,
+.book-card.drop-after::after {
+  content: '';
+  position: absolute;
+  top: 4px;
+  bottom: 22px;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--accent);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--accent) 70%, transparent);
+  z-index: 5;
+}
+
+.book-card.drop-before::before {
+  left: -6px;
+}
+
+.book-card.drop-after::after {
+  right: -6px;
+}
+
+.book-card.draggable:active {
+  cursor: grabbing;
+}

@@ -43,6 +43,22 @@ export interface Book {
   description: string
 }
 
+/**
+ * 书架分组（v30）。
+ *
+ * 存 kv `shelves`（数组即展示顺序），而不是新表：
+ * 分组是「轻量视图配置」，随备份 JSON 的 kv 一起走，不需要 DB 迁移。
+ * `bookIds` 的数组顺序就是组内手动排序（sort='manual' 时生效）；
+ * `Book.shelfId` 是冗余镜像，便于导出/排查时直接看出归组。
+ */
+export interface Shelf {
+  id: string
+  name: string
+  bookIds: string[]
+  collapsed?: boolean
+  createdAt: number
+}
+
 /** 书签：定位复用 locator，label 存快照（章节调整后仍可读） */
 export interface Bookmark {
   id: string

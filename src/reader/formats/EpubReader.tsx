@@ -90,6 +90,8 @@ export function EpubReader({
   const [ready, setReady] = useState(false)
   /** 首章是否已渲染完成（resize 与高亮都要等它） */
   const readyRef = useRef(false)
+  /** 正在恢复位置：期间禁止上报，避免把「尚未滚到位」的 0 写回覆盖目标 */
+  const restoringRef = useRef(false)
   const locReady = useRef(false)
   const styleRef = useRef({ fontSize, lineHeight, bg, fg })
   const reapplyRef = useRef<(() => void) | null>(null)
@@ -150,6 +152,41 @@ export function EpubReader({
 
     const clamp01 = (n: number) => Math.min(1, Math.max(0, Number.isFinite(n) ? n : 0))
 
+    /**
+     * 视口顶部对应的文本 CFI（K3 的关键）。
+     *
+     * `currentLocation().start.cfi` 只给「章节起点」，用它只能恢复到章节开头；
+     * scrolled-doc 下真正的章内位置要从 iframe 里按坐标命中一段文字，
+     * 再用 `contents.cfiFromRange()` 转成 CFI —— 这样恢复能精确到行。
+     */
+    const cfiAtViewportTop = (): string => {
+      const contents =
+        (rendition as unknown as { getContents?: () => Contents[] }).getContents?.() ?? []
+      for (const c of contents) {
+        const doc = c.document
+        const win = doc?.defaultView
+        const frame = win?.frameElement as HTMLElement | null
+        if (!doc || !win || !frame) continue
+        const fr = frame.getBoundingClientRect()
+        if (!fr.height) continue
+        // 视口顶部（至少 8px，避开 .epub-host 的 padding）必须真的落在这个 iframe 内：
+        // 上面完全不覆盖（bottom 在探针之上）或整体在下方，都不算当前章节。
+        const probe = Math.max(fr.top + 8, 8)
+        if (probe > fr.bottom - 4 || fr.top > probe) continue
+        const caret = (
+          doc as Document & { caretRangeFromPoint?: (x: number, y: number) => Range | null }
+        ).caretRangeFromPoint?.(Math.round(fr.width / 2), Math.round(probe - fr.top))
+        if (!caret) continue
+        try {
+          const cfi = c.cfiFromRange?.(caret)
+          if (cfi) return cfi
+        } catch {
+          /* 跨节点等异常时继续尝试下一个 contents */
+        }
+      }
+      return ''
+    }
+
     /** 采集当前位置快照：CFI + href + 全局百分比 + 章内滚动比例 */
     const snapshot = () => {
       try {
@@ -161,7 +198,8 @@ export function EpubReader({
           }
         ).currentLocation?.()
         const start = cur?.start
-        const cfi = start?.cfi
+        // 优先用「视口顶部文字」的 CFI：章内像素位置靠它才能恢复
+        const cfi = cfiAtViewportTop() || start?.cfi
         if (!cfi) return null
 
         let pct = 0
@@ -198,6 +236,7 @@ export function EpubReader({
 
     /** 读取当前渲染位置并上报（不依赖 relocated 事件） */
     const reportCurrent = () => {
+      if (restoringRef.current) return
       const snap = snapshot()
       if (!snap) return
       lastRef.current = { cfi: snap.cfi, percent: snap.percent }
@@ -435,23 +474,51 @@ export function EpubReader({
         ? initialLocator.value
         : undefined
 
-    /** 章内滚动恢复：容器高度依赖 iframe 布局，按帧重试直到可滚 */
+    /**
+     * 章内滚动恢复。
+     *
+     * scrolled-doc 下章节渲染完成后 epub.js 还会重排（字体、图片、章节拼接），
+     * 期间会把自己的 scrollTop 重置回 0 —— 这就是 K3「章内位置永远回到开头」的根因。
+     * 做法：定时重试并**持续矫正**，直到容器高度连续两次稳定；期间锁住上报，
+     * 避免把中间态的 0 写回数据库。
+     */
     const restoreScroll = (ratio: number | undefined) => {
-      if (typeof ratio !== 'number' || ratio <= 0.001) return
+      if (typeof ratio !== 'number' || ratio <= 0.001) {
+        restoringRef.current = false
+        return
+      }
+      restoringRef.current = true
       let tries = 0
+      let lastHeight = 0
+      let stable = 0
+      const finish = () => {
+        restoringRef.current = false
+        // 恢复完成后立刻上报真实位置（此时才可信）
+        window.setTimeout(() => reportCurrent(), 120)
+      }
       const tick = () => {
-        if (disposed) return
+        if (disposed) {
+          restoringRef.current = false
+          return
+        }
         const el = getScroller()
         if (el) {
           const max = el.scrollHeight - el.clientHeight
+          const height = el.scrollHeight
           if (max > 4) {
+            stable = Math.abs(height - lastHeight) < 2 ? stable + 1 : 0
+            lastHeight = height
             el.scrollTop = clamp01(ratio) * max
-            return
+            if (stable >= 2) {
+              finish()
+              return
+            }
           }
         }
-        if (++tries < 30) requestAnimationFrame(tick)
+        if (++tries < 60) window.setTimeout(tick, 100)
+        else finish()
       }
-      requestAnimationFrame(tick)
+      window.setTimeout(tick, 80)
     }
 
     const targetHref = initialLocator?.href
@@ -580,33 +647,28 @@ export function EpubReader({
     return () => window.removeEventListener('moyu:toc-jump', onJump as EventListener)
   }, [])
 
-  // 宿主滚动 → 上报像素比例（relocated 只在段落/章节切换时触发，不足以记录连续滚动位置）
+  /**
+   * 滚动 → 上报位置。
+   *
+   * 关键点：scrolled-doc 下真正滚动的是 epub.js 生成的 `.epub-container`，
+   * 而 scroll 事件不冒泡 —— 之前监听 `.epub-host` 一直收不到，
+   * 章内位置从未被记录（只有 relocated 的章节级 CFI）。
+   * 这里用捕获阶段监听，并把口径统一到 snapshot（CFI / 百分比 / 章内比例）。
+   */
   useEffect(() => {
     const host = hostRef.current
     if (!host || !ready) return
     let raf = 0
-    const report = () => {
-      const max = Math.max(1, host.scrollHeight - host.clientHeight)
-      const scrollRatio = Math.min(1, Math.max(0, host.scrollTop / max))
-      const { cfi, percent } = lastRef.current
-      onLocate({
-        kind: 'cfi',
-        value: cfi || percent,
-        percent: Math.max(percent, scrollRatio),
-        scrollRatio,
-        updatedAt: Date.now(),
-      })
-    }
     const onScroll = () => {
       cancelAnimationFrame(raf)
-      raf = requestAnimationFrame(report)
+      raf = requestAnimationFrame(() => reportCurrentRef.current?.())
     }
-    host.addEventListener('scroll', onScroll, { passive: true })
+    host.addEventListener('scroll', onScroll, { passive: true, capture: true })
     return () => {
-      host.removeEventListener('scroll', onScroll)
+      host.removeEventListener('scroll', onScroll, { capture: true } as EventListenerOptions)
       cancelAnimationFrame(raf)
     }
-  }, [onLocate, ready])
+  }, [ready])
 
   // 排版/主题变化：直接改写当前 iframe（不重建整本书）
   useEffect(() => {

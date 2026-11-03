@@ -2194,7 +2194,8 @@ async function runRestoreTest(name: string, testPath: string): Promise<void> {
       })()`)
       out.push(`advance ${advanced} -> ${jumped}`)
       // 章内容器滚动（验证 K3：章内位置也要记住）
-      await sleep(1200)
+      // 跳章后 epub.js 还会重排一次，等它稳定再滚（否则滚动会被重置，测出来是假失败）
+      await sleep(3000)
       const scrolled = await w1.webContents.executeJavaScript(`(() => {
         const el = document.querySelector('.epub-container, .epub-view')
         if (!el) return 'no-container'
@@ -2211,6 +2212,19 @@ async function runRestoreTest(name: string, testPath: string): Promise<void> {
       scrollTop: Math.round(document.querySelector('.text-scroll, .epub-host, .pdf-scroll, .comic-scroll')?.scrollTop ?? -1),
       containerScroll: Math.round(document.querySelector('.epub-container, .epub-view')?.scrollTop ?? -1),
       percent: document.querySelector('.reader-sub')?.textContent?.trim() ?? '',
+      topText: (() => {
+        // EPUB：取视口顶部命中的那段文字（章内位置的可比指标，像素值会被 epub.js 重置）
+        const f = document.querySelector('.epub-host iframe')
+        const doc = f && f.contentDocument
+        if (!doc || !doc.caretRangeFromPoint) return ''
+        const fr = f.getBoundingClientRect()
+        const probe = Math.max(fr.top + 8, 8)
+        const r = doc.caretRangeFromPoint(Math.round(fr.width / 2), Math.round(probe - fr.top))
+        if (!r) return ''
+        let el = r.startContainer.nodeType === 1 ? r.startContainer : r.startContainer.parentElement
+        while (el && el.textContent.trim().length < 4 && el.parentElement) el = el.parentElement
+        return (el?.textContent || '').trim().slice(0, 16)
+      })(),
     })`)
     out.push(`phase1 ${JSON.stringify(beforeClose)} title=${idInfo}`)
     w1.destroy()
@@ -2226,6 +2240,18 @@ async function runRestoreTest(name: string, testPath: string): Promise<void> {
       containerScroll: Math.round(document.querySelector('.epub-container, .epub-view')?.scrollTop ?? -1),
       percent: document.querySelector('.reader-sub')?.textContent?.trim() ?? '',
       err: document.querySelector('.reader-state')?.innerText?.slice(0, 80) ?? '',
+      topText: (() => {
+        const f = document.querySelector('.epub-host iframe')
+        const doc = f && f.contentDocument
+        if (!doc || !doc.caretRangeFromPoint) return ''
+        const fr = f.getBoundingClientRect()
+        const probe = Math.max(fr.top + 8, 8)
+        const r = doc.caretRangeFromPoint(Math.round(fr.width / 2), Math.round(probe - fr.top))
+        if (!r) return ''
+        let el = r.startContainer.nodeType === 1 ? r.startContainer : r.startContainer.parentElement
+        while (el && el.textContent.trim().length < 4 && el.parentElement) el = el.parentElement
+        return (el?.textContent || '').trim().slice(0, 16)
+      })(),
     })`)
     out.push(`phase2 ${JSON.stringify(after)}`)
     // EPUB 以 CFI 恢复：检查重开后 iframe 内首段文本是否仍属第 2 章
@@ -2251,6 +2277,13 @@ async function runRestoreTest(name: string, testPath: string): Promise<void> {
           : `INNER_SCROLL_FAIL(expect≈${c1}, got=${c2})`
       )
     }
+    const t1 = String((beforeClose as { topText?: string }).topText || '')
+    const t2 = String((after as { topText?: string }).topText || '')
+    if (t1 && t2) {
+      const a = t1.slice(0, 8)
+      const b = t2.slice(0, 8)
+      out.push(`INNER_TEXT ${a === b ? 'OK' : 'FAIL'}("${t1}" → "${t2}")`)
+    }
     if (String(cfiCheck) === 'chapter2') out.push('RESTORE_OK(cfi)')
     else if (want > 5 && Math.abs(got - want) <= tol) out.push(`RESTORE_OK(scroll expect≈${want}, got=${got})`)
     else if (want <= 5) out.push('RESTORE_SKIP(无滚动量)')
@@ -2270,6 +2303,130 @@ async function runRestoreTest(name: string, testPath: string): Promise<void> {
   console.log(`RESTORE_TEST[${name}]:`)
   for (const l of out) console.log('  ' + l)
   writeTestResult(`restore-${name}`, out)
+  app.exit(0)
+}
+
+// ---------------- EPUB 章内位置自检（MOYU_TEST_EPUBINNER=<testpath>） ----------------
+/**
+ * 验证 K3：同一章内滚动后重开，能否回到原来的文字位置。
+ *
+ * 只看 scrollTop 会被 epub.js 的重新布局骗到，所以同时比较「视口顶部命中的那段文字」：
+ * 文字一致才算真正回到了同一处。
+ */
+async function runEpubInnerTest(testPath: string): Promise<void> {
+  const renderer = path.join(__dirname, '../renderer/reader.html')
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+  const out: string[] = []
+  const makeWin = () =>
+    new BrowserWindow({
+      width: 1200,
+      height: 900,
+      frame: false,
+      show: true,
+      webPreferences: {
+        preload: path.join(__dirname, '../preload/preload.js'),
+        contextIsolation: true,
+        sandbox: false,
+        backgroundThrottling: false,
+      },
+    })
+
+  const READ = `(() => {
+    const el = document.querySelector('.epub-container, .epub-view')
+    const f = document.querySelector('.epub-host iframe')
+    const doc = f && f.contentDocument
+    let topText = ''
+    if (doc && doc.caretRangeFromPoint && f) {
+      const fr = f.getBoundingClientRect()
+      const probe = Math.max(fr.top + 8, 8)
+      const r = doc.caretRangeFromPoint(Math.round(fr.width / 2), Math.round(probe - fr.top))
+      if (r) {
+        let n = r.startContainer.nodeType === 1 ? r.startContainer : r.startContainer.parentElement
+        topText = (n && n.textContent || '').trim().slice(0, 20)
+      }
+    }
+    return JSON.stringify({
+      top: Math.round(el ? el.scrollTop : -1),
+      max: Math.round(el ? el.scrollHeight - el.clientHeight : -1),
+      topText,
+      percent: document.querySelector('.reader-sub')?.textContent?.trim() ?? '',
+    })
+  })()`
+
+  try {
+    const w1 = makeWin()
+    await w1.loadFile(renderer, { search: `?testpath=${encodeURIComponent(testPath)}` })
+    await waitFor(w1, `(() => {
+      const f = document.querySelector('.epub-host iframe')
+      return f && f.contentDocument && (f.contentDocument.body?.innerText || '').length > 50 ? 'ok' : ''
+    })()`, 30000)
+    await sleep(800)
+
+    // 章内滚动（不跳章）
+    const scrolled = await w1.webContents.executeJavaScript(`(async () => {
+      const el = document.querySelector('.epub-container, .epub-view')
+      if (!el) return 'no-scroller'
+      el.scrollTop = Math.min(600, el.scrollHeight - el.clientHeight)
+      await new Promise((r) => setTimeout(r, 900))
+      return 'scroll:' + Math.round(el.scrollTop) + '/' + Math.round(el.scrollHeight - el.clientHeight)
+    })()`)
+    out.push(`scroll ${scrolled}`)
+    await sleep(700)
+    const before = JSON.parse(String(await w1.webContents.executeJavaScript(READ)))
+    out.push(`before ${JSON.stringify(before)}`)
+
+    // 等节流保存 + 读取 locator（确认存的是章内 CFI 而不是章节起点）
+    await sleep(2200)
+    const locator = await w1.webContents.executeJavaScript(`(async () => {
+      const db = await new Promise((res, rej) => {
+        const q = indexedDB.open('moyu-reader')
+        q.onsuccess = () => res(q.result)
+        q.onerror = () => rej(q.error)
+      })
+      const books = await new Promise((res) => {
+        const tx = db.transaction('books', 'readonly')
+        const rq = tx.objectStore('books').getAll()
+        rq.onsuccess = () => res(rq.result)
+        rq.onerror = () => res([])
+      })
+      db.close()
+      const b = books.find((x) => x.id === 'testbook-epub')
+      return JSON.stringify(b && b.locator ? { kind: b.locator.kind, value: b.locator.value, ratio: b.locator.scrollRatio, percent: b.locator.percent } : null)
+    })()`)
+    out.push(`locator ${locator}`)
+
+    w1.destroy()
+    await sleep(800)
+
+    const w2 = makeWin()
+    await w2.loadFile(renderer, { search: '?bookId=testbook-epub' })
+    await waitFor(w2, `(() => {
+      const f = document.querySelector('.epub-host iframe')
+      return f && f.contentDocument && (f.contentDocument.body?.innerText || '').length > 50 ? 'ok' : ''
+    })()`, 30000)
+    await sleep(4500)
+    const after = JSON.parse(String(await w2.webContents.executeJavaScript(READ)))
+    out.push(`after ${JSON.stringify(after)}`)
+
+    const sameText = !!before.topText && before.topText.slice(0, 8) === String(after.topText).slice(0, 8)
+    const closePx = Math.abs(Number(after.top) - Number(before.top)) <= 40
+    out.push(`checks text=${sameText} px=${closePx}(${before.top}→${after.top})`)
+    out.push(sameText || closePx ? 'EPUB_INNER_OK' : 'EPUB_INNER_FAIL')
+    try {
+      const img = await w2.webContents.capturePage()
+      const devShot = path.join(app.getAppPath(), 'screenshots')
+      const target = fs.existsSync(devShot) ? devShot : app.getPath('userData')
+      fs.writeFileSync(path.join(target, 'epub-inner-restore.png'), img.toPNG())
+    } catch {
+      /* ignore */
+    }
+    w2.destroy()
+  } catch (e) {
+    out.push(`ERROR ${String(e)}`)
+  }
+  console.log('EPUB_INNER_TEST:')
+  for (const l of out) console.log('  ' + l)
+  writeTestResult('epub-inner', out)
   app.exit(0)
 }
 
@@ -2400,6 +2557,10 @@ if (!app.requestSingleInstanceLock() && !isShot) {
     if (isShot) {
       mainWin = createWindow()
       runShots(mainWin)
+      return
+    }
+    if (process.env.MOYU_TEST_EPUBINNER) {
+      void runEpubInnerTest(process.env.MOYU_TEST_EPUBINNER)
       return
     }
     if (process.env.MOYU_TEST_RESTORE) {

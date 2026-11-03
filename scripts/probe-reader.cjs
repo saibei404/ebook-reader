@@ -86,5 +86,32 @@ app.whenReady().then(async () => {
     }, null, 2)
   })()`)
   console.log(info)
+  if (process.env.PROBE_SCROLL === '1') {
+    const trace = await win.webContents.executeJavaScript(`(async () => {
+      // 滚动 EPUB 容器并采样，定位「滚动被谁重置」
+      const el = document.querySelector('.epub-container')
+      const f = document.querySelector('.epub-host iframe')
+      if (!el || !f) return 'no-el'
+      const log = []
+      el.scrollTop = 586
+      for (let i = 0; i < 8; i++) {
+        await new Promise((r) => setTimeout(r, 500))
+        const fr = f.getBoundingClientRect()
+        const doc = f.contentDocument
+        let caretText = ''
+        if (doc && doc.caretRangeFromPoint) {
+          const probe = Math.max(fr.top + 8, 8)
+          const rg = doc.caretRangeFromPoint(Math.round(fr.width / 2), Math.round(probe - fr.top))
+          if (rg) {
+            let node = rg.startContainer.nodeType === 1 ? rg.startContainer : rg.startContainer.parentElement
+            caretText = (node && node.textContent || '').trim().slice(0, 12)
+          }
+        }
+        log.push({ t: i * 500, top: Math.round(el.scrollTop), sh: Math.round(el.scrollHeight), frTop: Math.round(fr.top), caretText })
+      }
+      return JSON.stringify(log)
+    })()`)
+    console.log('SCROLL_TRACE', trace)
+  }
   app.exit(0)
 })

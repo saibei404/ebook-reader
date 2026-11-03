@@ -106,8 +106,12 @@ export function LibraryPage() {
 
   const list = useMemo(() => selectBooks(scopeBooks, ui), [scopeBooks, ui])
 
-  /** 是否分区展示：全部 + 无搜索 + 无筛选（其它情况平铺，避免与筛选语义打架） */
-  const spacedView = ui.shelfFilter === 'all' && ui.filter === 'all' && !ui.search.trim()
+  /**
+   * 是否分区展示：全部 + 无搜索 + 无筛选 + **至少建过一个分组**。
+   * 没有任何分组时保持原来的整片网格，不给不用分组的用户增加组头噪音。
+   */
+  const spacedView =
+    shelves.length > 0 && ui.shelfFilter === 'all' && ui.filter === 'all' && !ui.search.trim()
 
   const dropToShelf = (shelfId: string | null) => {
     if (!draggingId) return

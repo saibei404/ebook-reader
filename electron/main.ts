@@ -818,7 +818,7 @@ async function runFixtures(dir: string): Promise<void> {
     { name: 'txt-en', rel: 'txt/02-plain-ascii.txt', kind: 'text' },
     { name: 'md', rel: 'md/01-排版全要素.md', kind: 'text', needTable: true },
     { name: 'epub', rel: 'epub/01-排版全要素.epub', kind: 'epub', needTable: true, needColor: true },
-    { name: 'docx', rel: 'docx/01-排版全要素.docx', kind: 'text', needTable: true },
+    { name: 'docx', rel: 'docx/01-排版全要素.docx', kind: 'text', needTable: true, needStyled: true },
     { name: 'fb2', rel: 'fb2/01-排版全要素.fb2', kind: 'text' },
     { name: 'pdf', rel: 'pdf/01-排版全要素.pdf', kind: 'pdf' },
     { name: 'cbz', rel: 'cbz/01-四页示例.cbz', kind: 'comic' },
@@ -850,6 +850,11 @@ async function runFixtures(dir: string): Promise<void> {
       pages: c('.pdf-page, .comic-page, .pdf-page-ph'),
       body: st('.text-inner p:not(.doc-title):not(.doc-subtitle)') || (ed ? st('p', ed) : null),
       colors: colors.slice(0, 6),
+      styled: {
+        color: document.querySelectorAll('.text-inner span[style*="color"]').length,
+        size: document.querySelectorAll('.text-inner span[style*="font-size"]').length,
+        align: document.querySelectorAll('.text-inner [style*="text-align"]').length,
+      },
     })
   })()`
 
@@ -890,6 +895,7 @@ async function runFixtures(dir: string): Promise<void> {
         pages: number
         body: string | null
         colors: string[]
+        styled: { color: number; size: number; align: number }
       }
 
       const parts: string[] = []
@@ -901,6 +907,16 @@ async function runFixtures(dir: string): Promise<void> {
       if (r.err) {
         pass = false
         parts.push(`报错:${r.err}`)
+      }
+      // DOCX 直接格式透传（B5）：颜色 / 字号 / 对齐至少要各有命中
+      if ((t as { needStyled?: boolean }).needStyled) {
+        const st2 = r.styled ?? { color: 0, size: 0, align: 0 }
+        if (st2.color < 1 || st2.size < 1 || st2.align < 1) {
+          pass = false
+          parts.push(`样式透传 color=${st2.color} size=${st2.size} align=${st2.align}`)
+        } else {
+          parts.push(`样式 color=${st2.color} size=${st2.size} align=${st2.align}`)
+        }
       }
       if (t.kind === 'text' && r.p <= 0) {
         pass = false
@@ -928,9 +944,12 @@ async function runFixtures(dir: string): Promise<void> {
         parts.push('无正文样式')
       }
 
+      const styledNote = (t as { needStyled?: boolean }).needStyled
+        ? ` 样式${r.styled?.color ?? 0}/${r.styled?.size ?? 0}/${r.styled?.align ?? 0}`
+        : ''
       const stat =
         t.kind === 'text'
-          ? `p=${r.p} h1=${r.h1} 表${r.table}/th${r.th}`
+          ? `p=${r.p} h1=${r.h1} 表${r.table}/th${r.th}${styledNote}`
           : t.kind === 'epub'
             ? `p=${r.epubP} 表${r.epubTable}/th${r.epubTh} 色${r.colors.length}`
             : `${r.pages} 页`
@@ -1803,9 +1822,18 @@ async function runCrossWinTest(testPath: string): Promise<void> {
     out.push(`seed: ${seeded}`)
 
     openReaderWin('crossbook')
-    await sleep(7000)
-
-    const rw = aliveReader()
+    // 等容器真正出现（EPUB 要等引擎加载 + 首章渲染，固定 7s 在慢机器上不够）
+    let rw = aliveReader()
+    for (let i = 0; i < 60 && rw; i++) {
+      const has = await rw.webContents.executeJavaScript(
+        `!!(document.querySelector('.text-scroll, .epub-host, .pdf-scroll, .comic-scroll'))`
+      )
+      if (has) break
+      await sleep(400)
+      rw = aliveReader()
+    }
+    await sleep(1200)
+    rw = aliveReader()
     if (!rw) {
       out.push('FAIL: 阅读窗口未创建')
     } else {
@@ -1814,9 +1842,13 @@ async function runCrossWinTest(testPath: string): Promise<void> {
         state: (document.querySelector('.reader-state')?.innerText ?? '').replace(/\\s+/g, ' ').slice(0, 60),
         container: document.querySelector('.text-scroll')
           ? 'text'
-          : document.querySelector('.pdf-scroll')
-            ? 'pdf'
-            : 'none',
+          : document.querySelector('.epub-host')
+            ? 'epub'
+            : document.querySelector('.pdf-scroll')
+              ? 'pdf'
+              : document.querySelector('.comic-scroll')
+                ? 'comic'
+                : 'none',
         chars: (document.querySelector('.reader-body')?.innerText ?? '').length,
       })`)) as { title: string; state: string; container: string; chars: number }
       out.push(`reader: ${JSON.stringify(st)}`)

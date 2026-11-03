@@ -306,6 +306,19 @@ body {
   margin: 0.6em 0 0.3em;
 }
 
+/* 自研 OOXML 解析的书名/副标题（字号由 Word 的 w:sz 透传，这里只补层级感） */
+.text-inner .docx-title {
+  font-size: 1.5em;
+  font-weight: 600;
+  margin: 0.2em 0 0.9em;
+  line-height: 1.35;
+}
+
+.text-inner .docx-img-alt {
+  font-size: 0.85em;
+  color: var(--r-sub);
+}
+
 .text-inner .doc-subtitle {
   text-align: center;
   text-indent: 0;

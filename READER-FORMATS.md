@@ -30,7 +30,7 @@ IndexedDB（books/covers/wallpapers/kv） ◀── 位置节流写回（1.2s）
 | **PDF** | pdf.js 4.10（worker 懒渲染） | 页码 1-based | 页码级 | ✅ 可读，✅ 定位可靠 |
 | **FB2** | 自研（XML → 结构化章节） | 字符偏移 | 同 TXT | ✅ 可用 |
 | **MD** | 自研（轻量 Markdown → HTML，支持 GFM 表格/列表/引用/代码/行内颜色） | 字符偏移 | 同 TXT | ✅ 可用 |
-| **DOCX** | mammoth 1.13（Word → 语义 HTML，按 h1 切章） | 字符偏移 | 同 TXT | ✅ 可用（颜色/绝对字号/对齐不透传，见下） |
+| **DOCX** | 自研 OOXML 解析（fflate 解 zip + 读 `document.xml`，按 h1 切章）；mammoth 回退 | 字符偏移 | 同 TXT | ✅ 可用（颜色/字号/对齐已透传，见下） |
 | **CBZ** | fflate 解包 + 图片序列 | 图片序号 | 页级 | ✅ 可读，⚠️ 恢复时序待调 |
 | **CBR** | — | — | — | ❌ 明确提示转 CBZ |
 | **MOBI / AZW3** | — | — | — | ❌ 明确提示转 EPUB |
@@ -42,8 +42,13 @@ IndexedDB（books/covers/wallpapers/kv） ◀── 位置节流写回（1.2s）
   `getDocument({ url, rangeChunkSize: 512KB, disableAutoFetch: true })` 由引擎按 Range 分块读取
   （主进程用 `protocol.handle` 返回 206 + `fs.createReadStream(start,end)`）；再只渲染视口 ±600px
   内页面（IntersectionObserver），canvas 池上限 12 页，超出释放像素。
-- DOCX：`mammoth.convertToHtml`（浏览器版，按需加载）→ 按 `<h1>` 切章 → 与 TXT/MD 共用渲染管线；
-  表格首行提升为 `<th>`；Word 的字符颜色、绝对字号与段落对齐不透传（mammoth 不解析 `w:color` / `w:sz` / `w:jc`）。
+- DOCX：**自研 OOXML 解析**（`docx-ooxml.ts`）——fflate 解开 zip 直接读 `word/document.xml`，
+  逐 `w:p` / `w:r` 生成 HTML，再按 `<h1>` 切章，与 TXT/MD 共用渲染管线：
+  - `w:color` → `color: color-mix(in srgb, #hex 62%, var(--r-fg))`（保留色相，深色主题自动提亮）；
+  - `w:sz`（半磅）→ `em`（12pt 为 1em，夹在 0.78–2.2），随阅读器字号缩放；标题字号交给 h1/h2/h3；
+  - `w:jc` → `text-align`（both/distribute → justify）；`w:ind` → 首行缩进 2em；`w:numPr` → 项目符号；
+  - `w:tbl` → `<table>`，首行提升为 `<th>`，`gridSpan` → `colspan`；书名/副标题（Title/Subtitle）不参与切章。
+  - 解析失败（图片型/异常结构）回退 **mammoth 1.13**（按需动态加载，正常路径不下载），结构优先、直接格式丢失。
 - CBZ：`unzipSync` → 图片按自然序 → Blob URL（关闭时统一 revoke）。
 
 ---
@@ -118,7 +123,7 @@ IndexedDB（books/covers/wallpapers/kv） ◀── 位置节流写回（1.2s）
 |---|---|---|---|---|
 | K1 | ~~EPUB 跨会话恢复回落到第一章~~ | **已修复（v27）**：根因是滚动容器取了 `.epub-host`（overflow:hidden），实际应为 `.epub-container`；同时 display 后立即上报会覆盖目标位置。现改为快照式采集 + href 二次定位，`RESTORE_OK(cfi)` | 已关闭 |
 | K2 | ~~CBZ/PDF 自动化恢复用例未取到滚动量~~ | **已修复（v28）**：补 `scrollRatio` 并按比例恢复；CBZ 等图片撑开容器（定时器 4s + 高度门槛）。四格式 `RESTORE_OK` | 已关闭 |
-| K3 | EPUB 章内像素级滚动不进 locator | 同章内滚动位置不恢复 | 监听 iframe 内滚动（`hooks.content` 挂 scroll 监听）累计到 CFI | 中 |
+| K3 | ~~EPUB 章内像素级滚动不进 locator~~ | **已修复（v30）**：根因是 scroll 事件监听在 `.epub-host`（scroll 不冒泡，收不到 `.epub-container` 的滚动）；改为捕获阶段监听 + 视口顶部文字 CFI + 恢复期锁定上报/持续矫正 | 已关闭 |
 | K4 | ~~大 TXT（>3MB）一次性渲染全部章节~~ | **已修复（v29）**：章节 HTML 惰性生成 + 分批挂载（估算高度占位 + 前缀偏移二分），3MB/508 章首开 290ms、只挂 21 章 | 已关闭 |
 | K5 | ~~无阅读器内搜索~~ | **已实现（v28）**：TXT/MD/FB2/DOCX 全篇搜索（章节索引 + 片段 + 跳转）；PDF/EPUB/CBZ 提示暂不支持 | 已关闭 |
 

@@ -1270,6 +1270,35 @@ async function runAnnotTest(testPath: string): Promise<void> {
     })()`)
     out.push(`note ${notePanel}`)
 
+    // 整页笔记（无选区）：面板「+ 笔记」→ 输入 → 保存
+    const pageNote = await w2.webContents.executeJavaScript(`(async () => {
+      // 上一步可能已经把面板打开了（按钮是 toggle，再点会关掉）
+      if (!document.querySelector('.anno-panel')) {
+        const open = Array.from(document.querySelectorAll('.rb')).find((b) => (b.textContent || '').includes('笔记'))
+        open?.click()
+        await new Promise((r) => setTimeout(r, 300))
+      }
+      const add = Array.from(document.querySelectorAll('.anno-panel .rb')).find((b) => (b.textContent || '').includes('+ 笔记'))
+      if (!add) return 'no-add-btn'
+      add.click()
+      await new Promise((r) => setTimeout(r, 350))
+      const pop = document.querySelector('.note-pop')
+      if (!pop) return 'no-pop'
+      const ta = pop.querySelector('textarea')
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set
+      setter.call(ta, '整页笔记：这一页的要点')
+      ta.dispatchEvent(new Event('input', { bubbles: true }))
+      const save = Array.from(pop.querySelectorAll('button')).find((b) => (b.textContent || '').includes('保存'))
+      save?.click()
+      await new Promise((r) => setTimeout(r, 900))
+      // 「+ 笔记」会先关面板，保存后重新打开再读列表
+      const btn = Array.from(document.querySelectorAll('.rb')).find((b) => (b.textContent || '').includes('笔记'))
+      btn?.click()
+      await new Promise((r) => setTimeout(r, 350))
+      return document.querySelector('.anno-panel')?.innerText.replace(/\s+/g, ' ').slice(0, 200) ?? 'no-panel'
+    })()`)
+    out.push(`page-note ${pageNote}`)
+
     // 主窗口笔记页：聚合展示（同一 profile，验证跨窗口读取）
     const main = createWindow()
     mainWin = main
@@ -1278,7 +1307,7 @@ async function runAnnotTest(testPath: string): Promise<void> {
     const notesPage = await main.webContents.executeJavaScript(`(() => {
       const page = document.querySelector('.notes-page')
       if (!page) return 'no-page'
-      return page.innerText.replace(/\s+/g, ' ').slice(0, 160)
+      return page.innerText.replace(/\s+/g, ' ').slice(0, 600)
     })()`)
     out.push(`notes-page ${notesPage}`)
     main.show()
@@ -1297,11 +1326,12 @@ async function runAnnotTest(testPath: string): Promise<void> {
     const okPersist = count2 === 1 && hl2.size === 1
     const okNote = String(notePanel).includes('自动化验证备注')
     const okNotesPage = String(notesPage).includes('自动化验证备注')
+    const okPageNote = String(pageNote).includes('整页笔记')
     out.push(
-      `checks dots=${okDots} create=${okCreate} persist=${okPersist} note=${okNote} notesPage=${okNotesPage}`
+      `checks dots=${okDots} create=${okCreate} persist=${okPersist} note=${okNote} notesPage=${okNotesPage} pageNote=${okPageNote}`
     )
     out.push(
-      okDots && okCreate && okPersist && okNote && okNotesPage ? 'ANNOT_OK' : 'ANNOT_FAIL'
+      okDots && okCreate && okPersist && okNote && okNotesPage && okPageNote ? 'ANNOT_OK' : 'ANNOT_FAIL'
     )
     try {
       const img = await w2.webContents.capturePage()

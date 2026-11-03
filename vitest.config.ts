@@ -17,6 +17,8 @@ export default defineConfig({
   },
   test: {
     environment: 'jsdom',
+    // 本机并行 worker 的汇总上报偶发截断（只显示部分文件），串行跑更可信且仅慢 1s
+    fileParallelism: false,
     include: ['tests/**/*.test.ts'],
     reporters: 'default',
     coverage: {

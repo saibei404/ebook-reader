@@ -37,13 +37,15 @@ type PendingSel =
 
 /** 笔记编辑气泡状态 */
 interface NotePop {
-  /** null = 从选区新建 */
+  /** null = 新建（来自选区或当前页） */
   annoId: string | null
   color: AnnotationColor
   text: string
   quote: string
   x: number
   top: number
+  /** 新建「整页笔记」时的锚点（无选区） */
+  locator?: Locator
 }
 
 const UNSUPPORTED: Record<string, string> = {
@@ -434,8 +436,35 @@ export function ReaderApp() {
     })
   }
 
+  /** 整页笔记（无选区）：锚点取当前阅读位置 */
+  const createFromLocator = async (loc: Locator, color: AnnotationColor, note?: string) => {
+    if (!book) return
+    const now = Date.now()
+    const trimmed = note?.trim() || undefined
+    const a: Annotation = {
+      id: makeAnnotationId(now),
+      bookId: book.id,
+      type: trimmed ? 'note' : 'highlight',
+      color,
+      locator: { ...loc, updatedAt: now },
+      chapterTitle: loc.label || '',
+      excerpt: '',
+      note: trimmed,
+      createdAt: now,
+      updatedAt: now,
+    }
+    await putAnnotation(a)
+    setAnnotations((prev) => [...prev, a])
+    setNotePop(null)
+    flash(trimmed ? '已保存笔记' : '已添加标记')
+  }
+
   const saveNote = async () => {
     if (!notePop) return
+    if (!notePop.annoId && !sel && notePop.locator) {
+      await createFromLocator(notePop.locator, notePop.color, notePop.text)
+      return
+    }
     if (notePop.annoId) {
       const target = annotations.find((a) => a.id === notePop.annoId)
       if (!target) {
@@ -710,26 +739,16 @@ export function ReaderApp() {
                   flash('位置尚未就绪')
                   return
                 }
-                void (async () => {
-                  if (!book) return
-                  const now = Date.now()
-                  const a: Annotation = {
-                    id: makeAnnotationId(now),
-                    bookId: book.id,
-                    type: 'note',
-                    color: 'yellow',
-                    locator: { ...loc, updatedAt: now },
-                    chapterTitle: loc.label || '',
-                    excerpt: '',
-                    note: '',
-                    createdAt: now,
-                    updatedAt: now,
-                  }
-                  await putAnnotation(a)
-                  setAnnotations((prev) => [...prev, a])
-                  setAnnoOpen(false)
-                  openNoteFor(a.id)
-                })()
+                setAnnoOpen(false)
+                setNotePop({
+                  annoId: null,
+                  color: 'yellow',
+                  text: '',
+                  quote: '',
+                  locator: loc,
+                  x: window.innerWidth - 190,
+                  top: 240,
+                })
               }}
               title="在当前页写一条笔记"
             >

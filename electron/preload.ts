@@ -75,6 +75,18 @@ export interface MoyuAPI {
     size?: number
     error?: string
   }>
+  /** 上报渲染进程异常（写进主进程日志文件） */
+  reportLog(payload: {
+    scope: string
+    level?: 'error' | 'warn' | 'info'
+    message: string
+    stack?: string
+    extra?: unknown
+  }): void
+  /** 导出诊断报告（环境信息 + 最近日志），弹系统保存框 */
+  exportDiagnostics(): Promise<{ ok: boolean; path?: string; canceled?: boolean; error?: string }>
+  /** 兜底页用：关闭发起请求的窗口 */
+  selfClose(): void
 }
 
 const api: MoyuAPI = {
@@ -106,6 +118,9 @@ const api: MoyuAPI = {
   baiduLogout: () => ipcRenderer.invoke('moyu:baidu-logout'),
   baiduList: (p) => ipcRenderer.invoke('moyu:baidu-list', p),
   baiduDownload: (p) => ipcRenderer.invoke('moyu:baidu-download', p),
+  reportLog: (payload) => ipcRenderer.send('moyu:log', payload),
+  exportDiagnostics: () => ipcRenderer.invoke('moyu:diagnostics'),
+  selfClose: () => ipcRenderer.send('moyu:self-close'),
 }
 
 contextBridge.exposeInMainWorld('moyu', api)

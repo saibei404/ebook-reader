@@ -1,7 +1,8 @@
-import { app, BrowserWindow, Tray, Menu, globalShortcut, ipcMain, dialog, nativeImage, shell, protocol } from 'electron'
+import { app, BrowserWindow, Tray, Menu, globalShortcut, ipcMain, dialog, nativeImage, shell, protocol, nativeTheme } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
 import { Readable } from 'node:stream'
+import { log, logError, logFilePath, readRecentLogs, environmentSnapshot } from './logger'
 import { davList, davDownload } from './netpan'
 import {
   baiduStartAuth,
@@ -144,12 +145,21 @@ let recreating = false
 
 /** 写入 userData/crash.log，便于事后定位窗口/进程异常 */
 function logCrash(message: string): void {
-  try {
-    fs.appendFileSync(path.join(app.getPath('userData'), 'crash.log'), `[${new Date().toISOString()}] ${message}\n`)
-  } catch {
-    /* ignore */
-  }
+  log('error', 'crash', message)
 }
+
+/**
+ * 主进程兜底：任何未捕获异常/未处理 Promise 都先落日志，**不退出**。
+ *
+ * 桌面应用最差体验是「双击后窗口一闪就没了」——用户拿不到任何信息。
+ * 记录后继续运行，即使状态不再完美，也还能让用户导出诊断或至少看到兜底页。
+ */
+process.on('uncaughtException', (e) => {
+  logError('main', e, 'uncaughtException')
+})
+process.on('unhandledRejection', (reason) => {
+  logError('main', reason, 'unhandledRejection')
+})
 
 /** 取仍在存活的窗口（避免访问已销毁对象抛错） */
 function aliveWin(): BrowserWindow | null {
@@ -559,6 +569,74 @@ function registerIPC(): void {
     } catch (err) {
       return { ok: false, error: String((err as Error)?.message ?? err) }
     }
+  })
+
+  /**
+   * 渲染进程错误上报。
+   * 渲染端拿不到文件系统，只能把异常抛回主进程落盘；这里做长度截断，
+   * 避免异常对象里塞了大字符串把日志写爆。
+   */
+  ipcMain.on('moyu:log', (_e, payload: unknown) => {
+    const p = (payload ?? {}) as {
+      scope?: string
+      level?: string
+      message?: string
+      stack?: string
+      extra?: unknown
+    }
+    // 加 ui: 前缀：日志里一眼区分「主进程崩」和「某个窗口的渲染层崩」
+    const scope = `ui:${String(p.scope || 'render').slice(0, 32)}`
+    const message = String(p.message ?? '').slice(0, 4000)
+    // 堆栈首行通常就是 message 本身（`Error: xxx`），重复写两遍只会让日志更难读
+    const lines = p.stack ? String(p.stack).split('\n') : []
+    const head = (lines[0] ?? '').trim()
+    const frames = head && (head === message || head.endsWith(message)) ? lines.slice(1) : lines
+    const stack = frames.join('\n').slice(0, 6000).trim()
+    const level = p.level === 'warn' ? 'warn' : p.level === 'info' ? 'info' : 'error'
+    const extra = p.extra === undefined ? undefined : JSON.stringify(p.extra).slice(0, 600)
+    log(level, scope, message, stack ? `${stack}${extra ? ` | ${extra}` : ''}` : extra)
+  })
+
+  /** 打开系统保存框，把环境信息 + 最近日志写成一份可直接发来的诊断报告 */
+  ipcMain.handle('moyu:diagnostics', async (e) => {
+    const win = BrowserWindow.fromWebContents(e.sender) ?? aliveWin()
+    const d = new Date()
+    const p2 = (n: number) => String(n).padStart(2, '0')
+    const name = `moyu-diagnostics-${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}-${p2(
+      d.getHours()
+    )}${p2(d.getMinutes())}.txt`
+    const opts: Electron.SaveDialogOptions = {
+      title: '导出诊断报告',
+      defaultPath: path.join(app.getPath('documents'), name),
+      filters: [{ name: '文本', extensions: ['txt'] }],
+    }
+    try {
+      const r = win ? await dialog.showSaveDialog(win, opts) : await dialog.showSaveDialog(opts)
+      if (r.canceled || !r.filePath) return { ok: false, canceled: true }
+      const text = [
+        '=== 墨鱼阅读器 诊断报告 ===',
+        `生成时间: ${d.toLocaleString()}`,
+        environmentSnapshot(),
+        '',
+        '--- 最近日志 ---',
+        readRecentLogs(240),
+        '',
+      ].join('\n')
+      fs.writeFileSync(r.filePath, text, 'utf8')
+      log('info', 'diagnostics', 'exported', r.filePath)
+      return { ok: true, path: r.filePath }
+    } catch (err) {
+      logError('diagnostics', err, 'export failed')
+      return { ok: false, error: String(err) }
+    }
+  })
+
+  /** 兜底页用：关闭发起请求的那个窗口（主窗收进托盘，阅读窗直接销毁） */
+  ipcMain.on('moyu:self-close', (e) => {
+    const win = BrowserWindow.fromWebContents(e.sender)
+    if (!win || win.isDestroyed()) return
+    if (readerWin && win === readerWin) closeReaderWin()
+    else win.hide()
   })
 
   ipcMain.on('moyu:window', (_e, action: string) => {
@@ -1589,6 +1667,252 @@ async function runShelfTest(): Promise<void> {
   app.exit(0)
 }
 
+// ---------------- 错误兜底自检（MOYU_TEST_CRASH=1） ----------------
+/**
+ * 验证 v31-1（错误兜底与日志）：
+ * 1. 渲染阶段抛错 → 出现兜底页（标题 + 三个操作按钮），而不是白屏；
+ * 2. 全局 JS 错误 / 未处理 Promise → 写进 logs/app.log（带堆栈）；
+ * 3. 正常启动不受影响（不能把兜底页做成"每次启动都显示"）；
+ * 4. 诊断报告能生成（环境信息 + 日志正文）。
+ */
+async function runCrashTest(): Promise<void> {
+  const out: string[] = []
+  const indexHtml = path.join(__dirname, '../renderer/index.html')
+  const readerHtml = path.join(__dirname, '../renderer/reader.html')
+  const logDir = path.join(app.getPath('userData'), 'logs')
+  const logFile = path.join(logDir, 'app.log')
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+  const readLog = () => {
+    try {
+      if (!fs.existsSync(logFile)) return ''
+      const parts: string[] = []
+      for (const n of ['app.log', 'app.1.log']) {
+        const f = path.join(logDir, n)
+        if (fs.existsSync(f)) parts.push(fs.readFileSync(f, 'utf8'))
+      }
+      return parts.join('')
+    } catch {
+      return ''
+    }
+  }
+  const makeWin = (url?: string) =>
+    new BrowserWindow({
+      width: 1100,
+      height: 800,
+      frame: false,
+      show: true,
+      ...(url ? {} : {}),
+      webPreferences: {
+        preload: path.join(__dirname, '../preload/preload.js'),
+        contextIsolation: true,
+        sandbox: false,
+        backgroundThrottling: false,
+      },
+    })
+
+  try {
+    // 干净基线：避免上一轮的日志让断言假绿
+    try {
+      fs.rmSync(logDir, { recursive: true, force: true })
+    } catch {
+      /* ignore */
+    }
+
+    type Crashi = { title: string; buttons: string[]; msg: string; cardBg: string; h1: string }
+    const readUi = async (w: BrowserWindow, label: string): Promise<Crashi | null> => {
+      const raw = await waitFor(
+        w,
+        `(() => {
+          const card = document.querySelector('.moyu-crash-card')
+          if (!card) return ''
+          const cs = getComputedStyle(card)
+          const h1 = card.querySelector('h1')
+          return JSON.stringify({
+            title: h1?.textContent ?? '',
+            buttons: Array.from(document.querySelectorAll('.moyu-crash-btn')).map((b) => (b.textContent || '').trim()),
+            msg: (card.querySelector('.moyu-crash-msg')?.textContent ?? '').slice(0, 60),
+            cardBg: cs.backgroundColor,
+            h1: h1 ? getComputedStyle(h1).color : '',
+          })
+        })()`,
+        20000
+      )
+      out.push(`${label} ${raw || 'TIMEOUT'}`)
+      if (!raw) return null
+      try {
+        return JSON.parse(String(raw)) as Crashi
+      } catch {
+        return null
+      }
+    }
+
+    /** 相对亮度（WCAG） */
+    const luminance = (rgbText: string): number => {
+      const m = rgbText.match(/\d+(\.\d+)?/g)
+      if (!m || m.length < 3) return -1
+      const [r, g, b] = m.slice(0, 3).map(Number)
+      const f = (v: number) => {
+        const x = v / 255
+        return x <= 0.03928 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4)
+      }
+      return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b)
+    }
+    const contrastOf = (a: string, b: string): number => {
+      const l1 = luminance(a)
+      const l2 = luminance(b)
+      if (l1 < 0 || l2 < 0) return -1
+      const hi = Math.max(l1, l2)
+      const lo = Math.min(l1, l2)
+      return (hi + 0.05) / (lo + 0.05)
+    }
+
+    // 1) 渲染错误 → 兜底页。系统浅/深两种外观都要能看清：
+    //    只断言"元素存在"会漏掉「黑底黑字」这类问题（本项目真实踩过）
+    nativeTheme.themeSource = 'light'
+    const w1 = makeWin()
+    await w1.loadFile(indexHtml, { search: '?crash=render&theme=dark' })
+    const lightUi = await readUi(w1, 'render-ui-light')
+    const cLight = lightUi ? contrastOf(lightUi.h1, lightUi.cardBg) : -1
+    out.push(`contrast-light ${cLight.toFixed(2)} bg=${lightUi?.cardBg ?? ''}`)
+
+    nativeTheme.themeSource = 'dark'
+    await w1.loadFile(indexHtml, { search: '?crash=render&theme=dark' })
+    const darkUi = await readUi(w1, 'render-ui-dark')
+    const cDark = darkUi ? contrastOf(darkUi.h1, darkUi.cardBg) : -1
+    out.push(`contrast-dark ${cDark.toFixed(2)} bg=${darkUi?.cardBg ?? ''}`)
+    nativeTheme.themeSource = 'system'
+
+    const parsed = darkUi ?? { title: '', buttons: [] as string[], msg: '', cardBg: '', h1: '' }
+
+    // 2) 全局错误 → 日志
+    const w2 = makeWin()
+    await w2.loadFile(indexHtml, { search: '?crash=global&theme=dark' })
+    await sleep(1800)
+
+    // 3) 未处理 Promise → 日志
+    const w3 = makeWin()
+    await w3.loadFile(indexHtml, { search: '?crash=reject&theme=dark' })
+    await sleep(1800)
+
+    // 4) 阅读窗口兜底页（坏文件最常崩在这里）
+    const w4 = makeWin()
+    await w4.loadFile(readerHtml, { search: '?crash=render' })
+    const readerUi = await waitFor(
+      w4,
+      `document.querySelector('.moyu-crash-card h1')?.textContent || ''`,
+      20000
+    )
+    out.push(`reader-ui ${readerUi || 'TIMEOUT'}`)
+
+    // 5) 正常启动不应出现兜底页
+    const w5 = makeWin()
+    await w5.loadFile(indexHtml, { search: '?theme=dark' })
+    await waitFor(w5, `document.querySelectorAll('.book-card').length > 0 ? 'ok' : ''`, 20000)
+    const normalCrash = await w5.webContents.executeJavaScript(
+      `!!document.querySelector('.moyu-crash')`
+    )
+    out.push(`normal-fallback ${normalCrash}`)
+
+    const logs = readLog()
+    out.push(`log-bytes ${Buffer.byteLength(logs)}`)
+
+    const okRender =
+      parsed.title.includes('界面出了点问题') &&
+      parsed.buttons.length === 3 &&
+      parsed.buttons.some((b) => b.includes('重新加载')) &&
+      parsed.buttons.some((b) => b.includes('诊断')) &&
+      parsed.buttons.some((b) => b.includes('托盘') || b.includes('关闭')) &&
+      parsed.msg.includes('CRASH_TEST_RENDER')
+    const okReader = String(readerUi).includes('界面出了点问题')
+    // 渲染层日志必须带 ui: 前缀，且堆栈帧要保留（`    at ...`）
+    const okGlobal =
+      logs.includes('CRASH_TEST_GLOBAL') &&
+      logs.includes('[ui:main]') &&
+      /^\s+at\s/m.test(logs)
+    const okReject = logs.includes('CRASH_TEST_REJECT')
+    const okNoFallback = normalCrash === false
+    // 正文对比度 ≥ 4.5:1；浅色模式卡片背景必须是浅色（亮度 > 0.5）
+    const okContrast = cLight >= 4.5 && cDark >= 4.5 && luminance(lightUi?.cardBg ?? '') > 0.5
+    // 堆栈首行去重后，消息不应重复出现两次
+    const okHasStack = logs.includes('Error: CRASH_TEST_GLOBAL') && !logs.includes('| Error: CRASH_TEST_GLOBAL')
+
+    // 6) 诊断报告正文（不弹框，直接验证生成逻辑）
+    const report = [
+      '=== 墨鱼阅读器 诊断报告 ===',
+      environmentSnapshot(),
+      '',
+      '--- 最近日志 ---',
+      readRecentLogs(80),
+    ].join('\n')
+    const reportFile = path.join(app.getPath('userData'), 'diag-test.txt')
+    fs.writeFileSync(reportFile, report, 'utf8')
+    const okReport =
+      report.includes('Electron:') &&
+      report.includes('平台:') &&
+      report.includes('CRASH_TEST_RENDER') &&
+      Buffer.byteLength(report) > 200
+    out.push(`report-bytes ${Buffer.byteLength(report)}`)
+
+    // 7) 日志滚动：超过 2MB 必须切出 app.1.log，且当前文件回落（防止长期挂机写爆磁盘）
+    const filler = 'R'.repeat(4400)
+    for (let i = 0; i < 520; i++) log('info', 'rotate-test', `fill ${i} ${filler}`)
+    const rotatedFile = path.join(logDir, 'app.1.log')
+    const rotated = fs.existsSync(rotatedFile)
+    const curSize = fs.existsSync(logFile) ? fs.statSync(logFile).size : -1
+    const okRotate = rotated && curSize > 0 && curSize <= 2 * 1024 * 1024
+    out.push(`rotate ${rotated} cur=${curSize}`)
+
+    out.push(
+      `checks render=${okRender} reader=${okReader} global=${okGlobal} reject=${okReject} noFallback=${okNoFallback} stack=${okHasStack} report=${okReport} rotate=${okRotate} contrast=${okContrast}`
+    )
+    out.push(
+      okRender &&
+        okReader &&
+        okGlobal &&
+        okReject &&
+        okNoFallback &&
+        okHasStack &&
+        okReport &&
+        okRotate &&
+        okContrast
+        ? 'CRASH_GUARD_OK'
+        : 'CRASH_GUARD_FAIL'
+    )
+
+    // 兜底页截图（供人工确认视觉）。
+    // 注意：截图前必须重新确认 themeSource —— 前面为了不干扰其它用例已拨回 system，
+    // 页面会跟着系统重新渲染，直接截会得到「深色流程里的浅色图」。
+    try {
+      const devShot = path.join(app.getAppPath(), 'screenshots')
+      const target = fs.existsSync(devShot) ? devShot : app.getPath('userData')
+      for (const [theme, name] of [
+        ['dark', 'crash-fallback.png'],
+        ['light', 'crash-fallback-light.png'],
+      ] as const) {
+        nativeTheme.themeSource = theme
+        await w1.loadFile(indexHtml, { search: '?crash=render&theme=dark' })
+        await waitFor(w1, `document.querySelector('.moyu-crash-card') ? 'ok' : ''`, 15000)
+        await sleep(350)
+        const img = await w1.webContents.capturePage()
+        fs.writeFileSync(path.join(target, name), img.toPNG())
+      }
+      nativeTheme.themeSource = 'system'
+    } catch {
+      /* ignore */
+    }
+
+    for (const w of [w1, w2, w3, w4, w5]) {
+      if (!w.isDestroyed()) w.destroy()
+    }
+  } catch (e) {
+    out.push(`ERROR ${String(e)}`)
+  }
+  console.log('CRASH_TEST:')
+  for (const l of out) console.log('  ' + l)
+  writeTestResult('crash', out)
+  app.exit(0)
+}
+
 // ---------------- 备份导入自检（MOYU_TEST_BACKUP=1） ----------------
 /**
  * 验证 B3（导入部分）：
@@ -1902,7 +2226,8 @@ async function runReaderTest(name: string, query: string): Promise<void> {
   })
   try {
     await win.loadFile(renderer, { search: query })
-    await new Promise((r) => setTimeout(r, 4200))
+    // 7s：既要等首章渲染完成，也要覆盖「坏文件 6s 守卫」的判定窗口
+    await new Promise((r) => setTimeout(r, 7000))
     const probe = await win.webContents.executeJavaScript(`(() => {
       const q = (s) => document.querySelector(s)
       const root = q('.reader-root')
@@ -2623,6 +2948,10 @@ if (!app.requestSingleInstanceLock() && !isShot) {
     }
     if (process.env.MOYU_TEST_ANNOT) {
       void runAnnotTest(process.env.MOYU_TEST_ANNOT)
+      return
+    }
+    if (process.env.MOYU_TEST_CRASH === '1') {
+      void runCrashTest()
       return
     }
     if (process.env.MOYU_TEST_BACKUP === '1') {

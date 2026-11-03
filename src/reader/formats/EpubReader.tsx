@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import ePub, { EpubCFI, type Book as EpubBook, type Rendition } from 'epubjs'
 import type { Annotation, AnnotationColor, Locator } from '@/types/book'
+import { reportError } from '@/lib/error-log'
 
 export interface EpubSelection {
   cfiRange: string
@@ -522,6 +523,45 @@ export function EpubReader({
     }
 
     const targetHref = initialLocator?.href
+    const guards: number[] = []
+
+    /**
+     * 静默失败守卫。
+     *
+     * epub.js 对「截断/损坏的 zip」**不会 reject**：实测把 EPUB 截断到 40% 后，
+     * 阅读窗口一片空白、无 iframe、无异常、日志里什么都没有——用户只会说"打不开"。
+     *
+     * 分两级判定，避免误伤慢机器：
+     * - 6s：连 `.epub-container` 都没建 → epub.js 根本没跑起来（坏文件强特征，直接报错）；
+     * - 16s：容器在、但 iframe 无正文且不含图片 → 兜底报错（纯图漫画 EPUB 不算空白）。
+     */
+    const armBlankGuard = () => {
+      const fail = (why: string) => {
+        if (disposed) return
+        reportError('reader', new Error(`EPUB 无法渲染：${why}`), { file: 'EpubReader' })
+        onError('无法显示这本 EPUB：文件可能损坏、下载不完整，或受 DRM 保护。')
+      }
+      const inspect = (final: boolean): void => {
+        if (disposed) return
+        const container = host.querySelector('.epub-container, .epub-view')
+        const frame = host.querySelector('iframe')
+        if (!container && !frame) {
+          fail('渲染容器未创建')
+          return
+        }
+        if (!final) return
+        const doc = frame?.contentDocument
+        const text = (doc?.body?.innerText ?? '').trim()
+        const hasMedia = !!doc?.querySelector('img, svg, video, canvas')
+        if (frame && text.length < 8 && !hasMedia) fail('正文为空')
+      }
+      guards.push(window.setTimeout(() => inspect(false), 6000))
+      guards.push(window.setTimeout(() => inspect(true), 16000))
+    }
+
+    // 必须在 display 之前武装：损坏的 zip 会让 display 一直挂起（不 resolve 也不 reject），
+    // 放在 .then 里守卫永远不会执行。
+    armBlankGuard()
 
     rendition
       .display(startCfi ?? targetHref)
@@ -590,6 +630,7 @@ export function EpubReader({
 
     return () => {
       disposed = true
+      for (const g of guards) window.clearTimeout(g)
       ro.disconnect()
       cancelAnimationFrame(raf)
       reapplyRef.current = null

@@ -37,6 +37,8 @@ npm run dev:web      # 仅以前端方式预览（无原生能力）
 | 阅读内核 | 独立全屏 `reader.html` 窗口；TXT/MD/EPUB/PDF/FB2/DOCX/CBZ 七格式；DOCX 保留 Word 的颜色/字号/对齐；排版面板（字号/行距/宽度/字体/主题）；目录；Esc 退出 |
 | 位置记忆 | `locator` 四类定位（CFI/页码/字符偏移/图片序号）+ 退出前 flush；EPUB 精确到章内文字（视口顶部 CFI）；跨窗口 BroadcastChannel 同步书架圆环 |
 | 书架分组 | 自定义分组、拖拽归组与组内排序、折叠、重命名、删除；分组随备份 JSON 一起走 |
+| 导入 | 文件选择 + **全窗口拖拽**（可一次拖多本，逐个导入并显示进度）；EPUB/CBZ/PDF 自动提取内嵌封面，其余用书名生成封面 |
+| 安全 | 渲染进程启用 CSP（`script-src 'self'`、禁 `object-src`、禁 `eval`）；首屏不含任何格式引擎 |
 | 大文件 | 章节 HTML 惰性生成 + 分批挂载（3MB TXT 首开 ≈290ms，只挂 21/508 章）；PDF 走 `moyu-file://` 协议 Range 流式 |
 | 书签 / 高亮 / 笔记 | 书签面板与详情页列表；选中正文四色高亮（CSS Custom Highlight API，不改 DOM）；EPUB 用 CFI Range；备注可在阅读器或「笔记」页编辑；导出 Markdown |
 | 全篇搜索 | 文本类全篇搜索（章节索引 + 片段 + 点击精确跳转）；PDF/EPUB/CBZ 明确提示 |

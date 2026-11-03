@@ -96,3 +96,22 @@ EPUB 内容自带的作者 CSS 常写死深灰字（如 `h4{color:#444}`、`smal
 
 验证：修复前 `h4`/`small` 行亮度约 #444（在 #111113 背景上对比度不足 2:1），
 修复后与正文同亮度（#e8e6e3，对比度约 13:1），彩色强调项色值不变。
+
+## 带封面样本（`epub/02-带封面.epub`）
+
+其余样本都只有文字、没有任何图片，无法验证「导入时自动提取封面」这条链路。
+`02-带封面.epub` 在 `01-排版全要素.epub` 的基础上塞了一张 `cover.png`，并在 OPF 的
+manifest 里加了 `properties="cover-image"`（EPUB3 的封面声明方式）。
+
+由 `scripts/gen_epub_with_cover.cjs` 生成（可重跑），同时会写一份到
+`D:/moyu-builds/fixtures/sample-cover.epub` 供 `MOYU_TEST_DROP` 使用。
+
+用途对照：
+
+| 样本 | 预期导入行为 |
+|---|---|
+| `epub/02-带封面.epub` | 提取内嵌图作封面（`coverId` 非空） |
+| `epub/01-排版全要素.epub` | 无图 → 回退书名封面 |
+| `pdf/01-排版全要素.pdf` | 渲染第 1 页作封面 |
+| `cbz/01-四页示例.cbz` | 取包内第一张图 |
+| `txt` / `md` / `fb2` / `docx` | 一律回退书名封面 |

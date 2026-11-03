@@ -1913,6 +1913,299 @@ async function runCrashTest(): Promise<void> {
   app.exit(0)
 }
 
+// ---------------- 安全策略与首屏包体自检（MOYU_TEST_BUNDLE=1） ----------------
+/**
+ * 验证 v31-3 / v31-4：
+ * 1. CSP 真的生效（不是写了个不解析的 meta）：eval 与外域 fetch 都必须被拦；
+ * 2. 首屏 JS 里**不得**出现任何格式引擎（epubjs / pdfjs / mammoth / fflate）；
+ * 3. 非首屏页面已拆成独立 chunk，首屏体积可控。
+ */
+async function runBundleTest(): Promise<void> {
+  const out: string[] = []
+  const win = createWindow()
+  mainWin = win
+  const rendererDir = path.join(__dirname, '../renderer')
+
+  try {
+    // 1) CSP 生效性
+    await win.loadFile(path.join(rendererDir, 'index.html'), { search: '?theme=dark' })
+    await waitFor(win, `document.querySelectorAll('.book-card').length > 0 ? 'ok' : ''`, 25000)
+    const csp = await win.webContents.executeJavaScript(`(async () => {
+      const meta = document.querySelector('meta[http-equiv="Content-Security-Policy"]')
+      const content = meta ? meta.getAttribute('content') || '' : ''
+      const probe = async (fn) => {
+        try {
+          const v = await fn()
+          return { blocked: false, detail: String(v).slice(0, 40) }
+        } catch (e) {
+          const msg = (e && (e.message || e.toString())) || ''
+          return { blocked: /Content Security Policy|Refused|unsafe-eval|CSP/i.test(msg), detail: msg.slice(0, 90) }
+        }
+      }
+      /**
+       * 用 securitypolicyviolation 判定，而不是看 fetch 的报错文本：
+       * 请求被 CSP 拦和 DNS 解析失败都表现为 "Failed to fetch"，光看异常分不出来。
+       * 这个事件是标准 API，能拿到真正被触发的指令名。
+       */
+      const violations = []
+      const onViolation = (e) => violations.push(e.effectiveDirective + '|' + (e.blockedURI || ''))
+      document.addEventListener('securitypolicyviolation', onViolation)
+
+      const evalProbe = await probe(() => Promise.resolve(eval('1 + 1')))
+      await fetch('https://moyu-csp-probe.invalid/x').catch(() => {})
+      await new Promise((r) => setTimeout(r, 250))
+      document.removeEventListener('securitypolicyviolation', onViolation)
+
+      return JSON.stringify({
+        hasMeta: !!meta,
+        hasScriptSelf: /script-src 'self'/.test(content),
+        hasObjectNone: /object-src 'none'/.test(content),
+        evalProbe,
+        violations,
+      })
+    })()`)
+    out.push(`csp ${csp}`)
+    const c = JSON.parse(String(csp)) as {
+      hasMeta: boolean
+      hasScriptSelf: boolean
+      hasObjectNone: boolean
+      evalProbe: { blocked: boolean; detail: string }
+      violations: string[]
+    }
+    // 外域请求必须产生 connect-src 违规记录
+    const okConnect = c.violations.some((v) => v.startsWith('connect-src'))
+
+    // 2) 首屏 JS 组成
+    const html = fs.readFileSync(path.join(rendererDir, 'index.html'), 'utf8')
+    const refs = Array.from(new Set(Array.from(html.matchAll(/assets\/[^"']+\.js/g)).map((m) => m[0])))
+    /**
+     * 判定"引擎是否进了首屏"只能看**引用关系**，不能 grep 标识符：
+     * `GlobalWorkerOptions`、`unzipSync` 这些名字本来就会出现在调用方（动态 import 处的
+     * 属性访问/解构），库代码并不在首屏。真正的信号是——首屏的 script 列表里有没有引擎 chunk。
+     */
+    let firstScreen = 0
+    for (const ref of refs) {
+      const fp = path.join(rendererDir, ref)
+      if (fs.existsSync(fp)) firstScreen += fs.statSync(fp).size
+    }
+    const assets = fs.readdirSync(path.join(rendererDir, 'assets'))
+    const engineRe = /^(pdf-|EpubReader-|ComicReader-|reader-)/
+    const refNames = refs.map((r) => path.basename(r))
+    const bad = refNames.filter((n) => engineRe.test(n))
+    out.push(`first-screen ${refs.length} files, ${Math.round(firstScreen / 1024)}KB`)
+    out.push(`first-screen-refs [${refNames.join(', ')}]`)
+    out.push(`engines-in-first-screen [${bad.join(', ')}]`)
+    out.push(
+      `engine-chunks [${assets.filter((a) => engineRe.test(a)).join(', ')}]`
+    )
+
+    // 3) 非首屏是否真的拆出去了
+    const split = ['SettingsPage', 'NotesPage', 'BookDetail'].filter((n) =>
+      assets.some((a) => a.startsWith(n))
+    )
+    out.push(`split-chunks [${split.join(', ')}]`)
+
+    const okCsp =
+      c.hasMeta && c.hasScriptSelf && c.hasObjectNone && c.evalProbe.blocked && okConnect
+    const okEngines = bad.length === 0
+    const okSplit = split.length === 3
+    /**
+     * 阈值说明：首屏 = React 共享 chunk(≈240KB) + 业务代码(≈390KB)。
+     * React 18 生产版本身就是 130KB+，所以「<200KB」这类目标对一个 React 应用不现实；
+     * 这里守的是「不因为新增功能悄悄膨胀」，以及「任何格式引擎都不得进入首屏」。
+     */
+    const okSize = firstScreen > 0 && firstScreen < 680 * 1024
+    out.push(
+      `checks csp=${okCsp} engines=${okEngines} split=${okSplit} size=${okSize}`
+    )
+    out.push(
+      okCsp && okEngines && okSplit && okSize ? 'BUNDLE_OK' : 'BUNDLE_FAIL'
+    )
+  } catch (e) {
+    out.push(`ERROR ${String(e)}`)
+  }
+  console.log('BUNDLE_TEST:')
+  for (const l of out) console.log('  ' + l)
+  writeTestResult('bundle', out)
+  app.exit(0)
+}
+
+// ---------------- 拖拽批量导入自检（MOYU_TEST_DROP=1） ----------------
+/**
+ * 验证「拖入多文件 + 自动封面」：
+ * 1. 四个文件（epub/pdf/cbz/txt）一次导入 → added=4，进度回调按顺序推进；
+ * 2. 封面：epub/pdf/cbz 提取到真实封面（coverId 非空），txt 没有 → 回退书名封面；
+ * 3. 二次导入同一批 → 全部判重（added=0, dup=4）；
+ * 4. 拖拽交互：拖入时出现遮罩、离开后消失（DOM 事件层，不需要真实鼠标）。
+ */
+async function runDropTest(): Promise<void> {
+  const out: string[] = []
+  const win = createWindow()
+  mainWin = win
+  const fixtures = 'D:/moyu-builds/fixtures'
+  // sample-cover.epub 是特意造的「带封面」样本；sample.epub 本身没有任何图片，
+  // 正好用来验证「没有封面 → 回退书名封面」这一支
+  const names = ['sample-cover.epub', 'sample.epub', 'sample.pdf', 'sample.cbz', 'sample.txt']
+  const entries = names.map((n) => {
+    const p = path.join(fixtures, n)
+    let size = 0
+    try {
+      size = fs.statSync(p).size
+    } catch {
+      /* 缺样本时 size=0，断言会失败并暴露问题 */
+    }
+    return { path: p, name: n, size }
+  })
+
+  try {
+    await win.loadFile(path.join(__dirname, '../renderer/index.html'), {
+      search: '?testhooks=1&theme=dark',
+    })
+    const boot = await waitFor(win, 'window.__moyuStore ? 1 : 0', 25000)
+    if (!boot) throw new Error('store 未暴露（testhooks 失效）')
+    await new Promise((r) => setTimeout(r, 1200))
+
+    // 1) 导入四个文件，记录进度回调
+    const run = await win.webContents.executeJavaScript(`(async () => {
+      const S = window.__moyuStore
+      const entries = ${JSON.stringify(entries)}
+      const progress = []
+      const r1 = await S.getState().addBooksFromEntries(entries, {
+        onProgress: (done, total, name) => progress.push(done + '/' + total + ':' + name),
+      })
+      const books = S.getState().books
+      const created = books.filter((b) => entries.some((e) => (b.sourcePath || '').endsWith(e.name)))
+      const procCovers = S.getState().procCovers
+      const covers = S.getState().covers
+      return JSON.stringify({
+        r1,
+        progress,
+        created: created.map((b) => ({
+          name: (b.sourcePath || '').split('/').pop(),
+          format: b.format,
+          coverId: b.coverId || '',
+          hasProc: !!procCovers[b.id],
+          coverUrlOk: !!(b.coverId && covers[b.coverId]),
+        })),
+      })
+    })()`)
+    out.push(`import ${run}`)
+    const r = JSON.parse(String(run)) as {
+      r1: { added: number; dup: number; covers: number; failed: number }
+      progress: string[]
+      created: { name: string; format: string; coverId: string; hasProc: boolean; coverUrlOk: boolean }[]
+    }
+
+    // 2) 二次导入 → 全部判重
+    const again = await win.webContents.executeJavaScript(`(async () => {
+      const S = window.__moyuStore
+      const r2 = await S.getState().addBooksFromEntries(${JSON.stringify(entries)}, { withCover: false })
+      return JSON.stringify(r2)
+    })()`)
+    out.push(`again ${again}`)
+    const r2 = JSON.parse(String(again)) as { added: number; dup: number }
+
+    // 3) 拖拽遮罩：dragenter 出现 / dragleave 消失
+    const overlay = await win.webContents.executeJavaScript(`(async () => {
+      const mk = () => {
+        const dt = new DataTransfer()
+        dt.items.add(new File(['x'], 'probe.epub', { type: 'application/epub+zip' }))
+        return dt
+      }
+      window.dispatchEvent(new DragEvent('dragenter', { bubbles: true, dataTransfer: mk() }))
+      await new Promise((r) => setTimeout(r, 260))
+      const shown = !!document.querySelector('.dropzone')
+      const title = document.querySelector('.dropzone-title')?.textContent || ''
+      window.dispatchEvent(new DragEvent('dragleave', { bubbles: true, dataTransfer: mk() }))
+      await new Promise((r) => setTimeout(r, 420))
+      const el = document.querySelector('.dropzone')
+      const gone = !el
+      // 诊断：区分「state 没变（仍在显示）」与「AnimatePresence 没卸载（透明残留）」
+      const style = el ? getComputedStyle(el) : null
+      return JSON.stringify({
+        shown,
+        title,
+        gone,
+        stillThere: !!el,
+        opacity: style ? style.opacity : '',
+        display: style ? style.display : '',
+      })
+    })()`)
+    out.push(`overlay ${overlay}`)
+    const ov = JSON.parse(String(overlay)) as { shown: boolean; title: string; gone: boolean }
+
+    // 4) IDB 层面的封面对账
+    const dbState = await win.webContents.executeJavaScript(`(async () => {
+      const db = await new Promise((res, rej) => {
+        const q = indexedDB.open('moyu-reader')
+        q.onsuccess = () => res(q.result)
+        q.onerror = () => rej(q.error)
+      })
+      const count = (st) => new Promise((res) => {
+        const tx = db.transaction(st, 'readonly')
+        const rq = tx.objectStore(st).count()
+        rq.onsuccess = () => res(rq.result)
+        rq.onerror = () => res(-1)
+      })
+      const books = await new Promise((res) => {
+        const tx = db.transaction('books', 'readonly')
+        const rq = tx.objectStore('books').getAll()
+        rq.onsuccess = () => res(rq.result)
+      })
+      const n = { books: await count('books'), covers: await count('covers') }
+      db.close()
+      return JSON.stringify({ ...n, withCover: books.filter((b) => b.coverId).length })
+    })()`)
+    out.push(`db ${dbState}`)
+
+    const byName = (n: string) => r.created.find((c) => (c.name || '').endsWith(n))
+    const okCount = r.r1.added === 5 && r.created.length === 5
+    const okProgress = r.progress.length === 5 && r.progress[0].startsWith('0/5')
+    // 有内嵌封面的三种格式必须取到
+    const okCover =
+      !!byName('sample-cover.epub')?.coverId &&
+      !!byName('sample.pdf')?.coverId &&
+      !!byName('sample.cbz')?.coverId &&
+      byName('sample-cover.epub')?.format === 'epub' &&
+      byName('sample.pdf')?.format === 'pdf'
+    // 无封面的（纯文本 epub / txt）必须回退书名封面
+    const okFallback =
+      !byName('sample.epub')?.coverId &&
+      !!byName('sample.epub')?.hasProc &&
+      !byName('sample.txt')?.coverId &&
+      !!byName('sample.txt')?.hasProc
+    const okUrl = r.created.filter((c) => c.coverUrlOk).length === 3
+    const okDedup = r2.added === 0 && r2.dup === 5
+    const okOverlay = ov.shown && ov.title.includes('松开以导入') && ov.gone
+    out.push(
+      `checks count=${okCount} progress=${okProgress} cover=${okCover} fallback=${okFallback} url=${okUrl} dedup=${okDedup} overlay=${okOverlay}`
+    )
+    out.push(
+      okCount && okProgress && okCover && okFallback && okUrl && okDedup && okOverlay
+        ? 'DROP_OK'
+        : 'DROP_FAIL'
+    )
+
+    // 书架截图（人工确认封面真的显示出来了）
+    try {
+      win.show()
+      await new Promise((r) => setTimeout(r, 700))
+      const img = await win.webContents.capturePage()
+      const devShot = path.join(app.getAppPath(), 'screenshots')
+      const target = fs.existsSync(devShot) ? devShot : app.getPath('userData')
+      fs.writeFileSync(path.join(target, 'drop-import.png'), img.toPNG())
+    } catch {
+      /* ignore */
+    }
+  } catch (e) {
+    out.push(`ERROR ${String(e)}`)
+  }
+  console.log('DROP_TEST:')
+  for (const l of out) console.log('  ' + l)
+  writeTestResult('drop', out)
+  app.exit(0)
+}
+
 // ---------------- 备份导入自检（MOYU_TEST_BACKUP=1） ----------------
 /**
  * 验证 B3（导入部分）：
@@ -2948,6 +3241,14 @@ if (!app.requestSingleInstanceLock() && !isShot) {
     }
     if (process.env.MOYU_TEST_ANNOT) {
       void runAnnotTest(process.env.MOYU_TEST_ANNOT)
+      return
+    }
+    if (process.env.MOYU_TEST_BUNDLE === '1') {
+      void runBundleTest()
+      return
+    }
+    if (process.env.MOYU_TEST_DROP === '1') {
+      void runDropTest()
       return
     }
     if (process.env.MOYU_TEST_CRASH === '1') {

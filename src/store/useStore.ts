@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type { Book, Settings, AnimMode, MaterialStyle, BookFormat, WallpaperFit, Shelf } from '@/types/book'
+import { extractCover } from '@/lib/cover-extract'
 import { formatFromName } from '@/types/book'
 import {
   allBooks,
@@ -15,10 +16,43 @@ import {
   setKV,
   deleteBookmarksOfBook,
   deleteAnnotationsOfBook,
+  allCovers,
 } from '@/lib/db'
 import { generateCoverDataUrl } from '@/lib/cover'
 import { seedBooks } from '@/lib/seed'
 import { nativeApi, type PickedFile } from '@/lib/native'
+
+/** Blob → dataURL（封面入库前统一格式，与 setCoverFromFile 保持一致） */
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader()
+    r.onload = () => resolve(String(r.result))
+    r.onerror = () => reject(r.error)
+    r.readAsDataURL(blob)
+  })
+}
+
+/**
+ * 读出文件内容并尝试提取封面。
+ * PDF 走 `moyu-file://` 时是 URL 模式，需要 fetch 一次拿字节（≤60MB 才做，见 extractCover）。
+ */
+async function readCoverForFile(
+  file: PickedFile,
+  format: BookFormat
+): Promise<Awaited<ReturnType<typeof extractCover>>> {
+  if (!nativeApi?.readBook || !file.path) return null
+  const res = await nativeApi.readBook(file.path)
+  if (!res.ok) return null
+  let buf: ArrayBuffer | null = null
+  if (res.mode === 'buffer' && res.data) buf = res.data
+  else if (res.mode === 'url' && res.url) {
+    const r = await fetch(res.url)
+    if (!r.ok) return null
+    buf = await r.arrayBuffer()
+  }
+  if (!buf) return null
+  return extractCover(format, buf, file.size)
+}
 
 export const DEFAULT_SETTINGS: Settings = {
   theme: 'dark',
@@ -103,6 +137,19 @@ interface Store {
   hydrate: () => Promise<void>
   addBooksFromFiles: (files: File[]) => Promise<void>
   addBooksFromPicked: (picked: PickedFile[]) => Promise<void>
+  /**
+   * 统一的导入入口（拖拽 / 文件选择 / 网盘下载都走这里）。
+   * 逐个处理：每本书先落库，再尝试提取内嵌封面；提取失败保留书名封面。
+   */
+  addBooksFromEntries: (
+    entries: PickedFile[],
+    opts?: {
+      /** 每开始处理一个文件回调一次（done 为已处理数） */
+      onProgress?: (done: number, total: number, name: string) => void
+      /** 是否尝试提取封面（默认 true） */
+      withCover?: boolean
+    }
+  ) => Promise<{ added: number; dup: number; covers: number; failed: number }>
   updateBook: (id: string, patch: Partial<Book>) => Promise<void>
   removeBook: (id: string) => Promise<void>
   createShelf: (name: string) => Promise<Shelf>
@@ -285,8 +332,26 @@ export const useStore = create<Store>((setState, getState) => ({
       }
       await setKV('seeded', true)
     }
+    // 有真实封面的书不必再画一张程序化封面（省一次 canvas 绘制与内存）
     for (const b of books) {
-      if (!procCovers[b.id]) procCovers[b.id] = generateCoverDataUrl(b)
+      if (!procCovers[b.id] && !b.coverId) procCovers[b.id] = generateCoverDataUrl(b)
+    }
+
+    /**
+     * 载入真实封面。
+     *
+     * 之前这里恒为 `{}`，而 `getCover` 没有任何调用方——后果是「自定义/自动提取的封面
+     * 重启后全部消失，退回书名封面」，数据其实还在库里，只是没人去读。
+     */
+    const covers: Record<string, string> = {}
+    try {
+      const recs = await allCovers()
+      const need = new Set(books.map((b) => b.coverId).filter(Boolean) as string[])
+      for (const r of recs) {
+        if (need.has(r.id)) covers[r.id] = r.dataUrl
+      }
+    } catch {
+      /* 封面表异常不应阻断启动 */
     }
 
     // 壁纸记录容错：损坏记录（blob 丢失/为空）清理掉，避免 createObjectURL 抛错导致启动卡死
@@ -387,7 +452,7 @@ export const useStore = create<Store>((setState, getState) => ({
       shelves,
       settings: merged,
       procCovers,
-      covers: {},
+      covers,
       wallpapers,
       webdav: {
         ...getState().webdav,
@@ -401,56 +466,33 @@ export const useStore = create<Store>((setState, getState) => ({
     })
   },
 
-  addBooksFromFiles: async (files) => {
+  /**
+   * 统一导入入口。
+   *
+   * 三条路径共用：拖拽、文件选择对话框、网盘下载。
+   * **逐个处理**：一本书先落库（先把书保住），再尝试提取内嵌封面；
+   * 取封面失败绝不回滚书籍——封面只是装饰，不能因为它丢掉整本书。
+   */
+  addBooksFromEntries: async (entries, opts) => {
     const now = Date.now()
     const created: Book[] = []
+    const newCovers: Record<string, string> = {}
     let dup = 0
-    for (const f of files) {
-      const book: Book = {
-        id: uid('b'),
-        title: f.name.replace(/\.[^.]+$/, ''),
-        author: '本地导入',
-        format: formatFromName(f.name) as BookFormat,
-        addedAt: now,
-        lastReadAt: null,
-        progress: 0,
-        coverId: null,
-        coverSeed: Math.floor(Math.random() * 100000),
-        shelfId: null,
-        size: f.size,
-        sourcePath: null,
-        description: '',
-      }
-      if (isDuplicate(book, getState().books)) {
-        dup++
-        continue
-      }
-      await putBook(book)
-      created.push(book)
-    }
-    if (created.length) {
-      setState((s) => ({
-        books: [...s.books, ...created],
-        procCovers: {
-          ...s.procCovers,
-          ...Object.fromEntries(created.map((b) => [b.id, generateCoverDataUrl(b)])),
-        },
-      }))
-    }
-    if (created.length) getState().toast(`已导入 ${created.length} 本书${dup ? `，跳过 ${dup} 本重复` : ''}`, 'ok')
-    else getState().toast(`所选 ${dup} 本书已在书架中`, 'info')
-  },
+    let failed = 0
+    let coverCount = 0
+    const total = entries.length
+    let done = 0
 
-  addBooksFromPicked: async (picked) => {
-    const now = Date.now()
-    const created: Book[] = []
-    let dup = 0
-    for (const p of picked) {
+    for (const p of entries) {
+      opts?.onProgress?.(done, total, p.name)
+      done += 1
+
+      const format = formatFromName(p.name) as BookFormat
       const book: Book = {
         id: uid('b'),
         title: p.name.replace(/\.[^.]+$/, ''),
         author: '本地导入',
-        format: formatFromName(p.name) as BookFormat,
+        format,
         addedAt: now,
         lastReadAt: null,
         progress: 0,
@@ -458,28 +500,77 @@ export const useStore = create<Store>((setState, getState) => ({
         coverSeed: Math.floor(Math.random() * 100000),
         shelfId: null,
         size: p.size,
-        sourcePath: p.path,
+        sourcePath: p.path || null,
         description: '',
       }
       if (isDuplicate(book, getState().books)) {
-        dup++
+        dup += 1
         continue
       }
-      await putBook(book)
+      try {
+        await putBook(book)
+      } catch {
+        failed += 1
+        continue
+      }
+
+      if (opts?.withCover !== false && p.path) {
+        try {
+          const got = await readCoverForFile(p, format)
+          if (got) {
+            const dataUrl = await blobToDataUrl(got.blob)
+            const coverId = uid('cov')
+            await putCover({ id: coverId, dataUrl, createdAt: Date.now() })
+            book.coverId = coverId
+            await putBook(book)
+            newCovers[coverId] = dataUrl
+            coverCount += 1
+          }
+        } catch {
+          /* 封面失败：保留书名封面 */
+        }
+      }
       created.push(book)
     }
+
     if (created.length) {
       setState((s) => ({
         books: [...s.books, ...created],
+        covers: { ...s.covers, ...newCovers },
         procCovers: {
           ...s.procCovers,
-          ...Object.fromEntries(created.map((b) => [b.id, generateCoverDataUrl(b)])),
+          // 没有真实封面的书用书名封面兜底（generateCoverDataUrl 内部会画书名）
+          ...Object.fromEntries(
+            created
+              .filter((b) => !b.coverId)
+              .map((b) => [b.id, generateCoverDataUrl(b)] as const)
+          ),
         },
       }))
-      getState().toast(`已导入 ${created.length} 本书${dup ? `，跳过 ${dup} 本重复` : ''}`, 'ok')
-    } else {
-      getState().toast(`所选 ${dup} 本书已在书架中`, 'info')
     }
+
+    const parts: string[] = []
+    if (created.length) parts.push(`已导入 ${created.length} 本书`)
+    if (coverCount) parts.push(`${coverCount} 本带封面`)
+    if (dup) parts.push(`跳过 ${dup} 本重复`)
+    if (failed) parts.push(`${failed} 本失败`)
+    if (created.length) getState().toast(parts.join('，'), 'ok')
+    else if (dup) getState().toast(`所选 ${dup} 本书已在书架中`, 'info')
+    else if (failed) getState().toast(`导入失败：${failed} 个文件无法读取`, 'err')
+
+    return { added: created.length, dup, covers: coverCount, failed }
+  },
+
+  addBooksFromFiles: async (files) => {
+    // Web 预览 / 无 Electron 环境：没有磁盘路径，读不到内嵌封面，只建书
+    await getState().addBooksFromEntries(
+      files.map((f) => ({ name: f.name, size: f.size, path: '' })),
+      { withCover: false }
+    )
+  },
+
+  addBooksFromPicked: async (picked) => {
+    await getState().addBooksFromEntries(picked)
   },
 
   updateBook: async (id, patch) => {

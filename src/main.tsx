@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import App from './App'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { installErrorLogging } from './lib/error-log'
+import { useStore } from './store/useStore'
 import './styles/global.css'
 
 // 必须早于 React 挂载：首屏渲染阶段的异常也要能落到日志
@@ -17,6 +18,8 @@ if (typeof location !== 'undefined' && new URLSearchParams(location.search).get(
   void import('./lib/backup').then((m) => {
     ;(window as unknown as { __moyuBackup?: unknown }).__moyuBackup = m
   })
+  // 端到端自检需要直接驱动导入流程（拖拽是浏览器事件，自动化里只能造 DOM 事件）
+  ;(window as unknown as { __moyuStore?: unknown }).__moyuStore = useStore
 }
 
 /**

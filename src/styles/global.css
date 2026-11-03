@@ -2549,3 +2549,120 @@ code {
 .book-card.draggable:active {
   cursor: grabbing;
 }
+
+/* ---------- 拖拽导入遮罩 ---------- */
+.dropzone {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: grid;
+  place-items: center;
+  animation: dz-fade-in 0.16s ease both;
+  /* 事件全部交给 window 上的监听器，遮罩本身不拦截指针 */
+  pointer-events: none;
+  background: color-mix(in srgb, var(--bg-fallback) 62%, transparent);
+  backdrop-filter: saturate(120%);
+}
+
+.dropzone-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: min(520px, calc(100vw - 96px));
+  padding: 30px 28px 26px;
+  border-radius: 18px;
+  border: 1.5px dashed color-mix(in srgb, var(--accent) 55%, transparent);
+  background: var(--acrylic-card);
+  box-shadow: 0 26px 64px rgba(0, 0, 0, 0.32);
+  text-align: center;
+}
+
+.dropzone-card.running {
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+.dropzone-icon {
+  display: grid;
+  place-items: center;
+  width: 54px;
+  height: 54px;
+  margin-bottom: 4px;
+  border-radius: 15px;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: color-mix(in srgb, var(--accent) 85%, var(--text-1));
+}
+
+.dropzone-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-1);
+}
+
+.dropzone-sub {
+  font-size: 12.5px;
+  color: var(--text-2);
+  line-height: 1.6;
+}
+
+.dropzone-file {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.dropzone-hint {
+  margin-top: 2px;
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+
+.dropzone-bar {
+  width: 100%;
+  height: 5px;
+  margin-top: 10px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--text-1) 12%, transparent);
+  overflow: hidden;
+}
+
+.dropzone-bar span {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--accent);
+  transition: width 0.25s ease;
+}
+
+
+@keyframes dz-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes dz-card-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.dropzone-card {
+  animation: dz-card-in 0.2s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* 懒加载页面的占位：保持内容区高度，避免切页时布局跳一下 */
+.page-suspense {
+  min-height: 420px;
+}

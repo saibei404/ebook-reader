@@ -289,3 +289,48 @@ W6   C4 发布(2d) → C5 清理 → 归档                 ← M4 达成
 | 4 | 主入口 chunk 拆分（当前 572KB 含 mammoth 回退，目标 <200KB） | 待做 |
 | 5 | Electron 33 → 受支持版本 | 待做 |
 | 6 | 代码签名 + `signAndEditExecutable: true` | 待做 |
+
+### v31-3 安全策略（已完成）
+
+两个入口（`index.html` / `reader.html`）加 CSP meta：
+
+| 指令 | 值 | 理由 |
+|---|---|---|
+| `script-src` | `'self'` | 无内联脚本；收紧后即使书里塞脚本也执行不了 |
+| `style-src` | `'self' 'unsafe-inline' blob:` | React 内联 style、兜底页 `<style>`、**EPUB 章节样式（blob）** |
+| `img/media/connect-src` | 含 `blob: data: moyu-file:` | 封面、EPUB 内图片、本地书籍协议 |
+| `frame-src` | `'self' blob: data:` | epub.js 把章节装进 blob: iframe |
+| `worker-src` | `'self' blob:` | pdf.js worker |
+| `object-src` / `base-uri` / `form-action` | `'none'` | 本应用完全用不到 |
+
+**误伤与修复**：首版漏了 `style-src blob:`，EPUB 的文字还在但样式全丢（颜色从多色退化成 1 色），
+fixtures 立刻报 `epub FAIL 颜色 1 色`。CSP 生效性用 `securitypolicyviolation` 事件断言
+（不能看 fetch 的报错文本——DNS 失败也是 `Failed to fetch`），实测拿到 `script-src|eval` 与
+`connect-src|https://…` 两条违规记录。
+
+### v31-4 首屏包体（已完成）
+
+| 项 | 前 | 后 |
+|---|---|---|
+| 主入口 chunk | 440KB | **388KB** |
+| 首屏合计（含 React 共享 chunk） | 683KB | **627KB** |
+| 设置页 / 笔记页 / 书籍详情 | 打在主包 | 39KB / 8.7KB / 10.3KB 独立 chunk |
+| 首屏引擎 | — | 无（pdf 635KB、EPUB 795KB、reader 依赖 563KB 全部独立） |
+
+**修正一个早期误判**：此前以为「主入口 563KB 含 mammoth」需要压到 200KB。实际那个 563KB chunk
+属于**阅读入口**的依赖，从未进过首屏；首屏是 440KB + 240KB（React 共享 chunk）。
+`<200KB` 对一个 React 应用不现实（React 18 生产版本身 130KB+），阈值改为 680KB，
+守的是「不因新功能悄悄膨胀」+「引擎不得进首屏」。
+
+### 拖拽批量导入 + 自动封面
+
+| 项 | 内容 |
+|---|---|
+| 拖拽 | window 级监听；**必须 preventDefault**（不拦会让窗口导航到文件本身）；dragleave 计数防闪（且不能依赖 `dataTransfer.types`，部分环境为空会让遮罩卡死） |
+| 批量 | 逐个 `await`，遮罩显示 `正在导入 2/5 · 文件名` + 进度条；不支持的文件单独计数提示 |
+| 封面 | EPUB 按 OPF 规范（`properties="cover-image"` → `<meta name="cover">` → 文件名含 cover）；CBZ 取首图；PDF 渲染第 1 页（>60MB 放弃）；失败/null 一律回退书名封面 |
+| 兼容 | 三条导入路径（拖拽 / 对话框 / 网盘）统一到 `addBooksFromEntries`，行为一致 |
+| 顺带修复 | `hydrate` 原来恒为 `covers: {}` 且 `getCover` 无人调用 → 真实封面**重启后消失**，退回书名封面 |
+
+自检 `MOYU_TEST_DROP`：5 个样本（带封面 epub / 无封面 epub / pdf / cbz / txt）
+→ `added=5, covers=3`，无封面的两本有书名封面，二次导入 `dup=5`，遮罩出现/消失正确 → `DROP_OK`。

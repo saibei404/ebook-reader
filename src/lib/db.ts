@@ -86,6 +86,11 @@ export async function putCover(rec: CoverRec): Promise<string> {
   return rec.id
 }
 
+export async function allCovers(): Promise<CoverRec[]> {
+  const db = await getDB()
+  return db.getAll('covers')
+}
+
 export async function getCover(id: string): Promise<string | null> {
   const db = await getDB()
   const rec = await db.get('covers', id)

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { lazy, Suspense, useEffect, useRef } from 'react'
 import { AnimatePresence } from 'motion/react'
 import { useStore } from '@/store/useStore'
 import { subscribeBookUpdates } from '@/reader/locator'
@@ -6,12 +6,26 @@ import { nativeApi } from '@/lib/native'
 import { WallpaperLayer } from '@/components/WallpaperLayer'
 import { TabBar } from '@/components/TabBar'
 import { TopBar } from '@/components/TopBar'
-import { BookDetail } from '@/components/BookDetail'
+
 import { Toast } from '@/components/Toast'
 import { LibraryPage } from '@/pages/LibraryPage'
-import { SettingsPage } from '@/pages/SettingsPage'
-import { NotesPage } from '@/pages/NotesPage'
 import { PlaceholderPage } from '@/pages/PlaceholderPage'
+import { DropZone } from '@/components/DropZone'
+
+/**
+ * 非首屏模块按需加载。
+ *
+ * 冷启动只需要「书架」：设置页有 30KB 源码（最大单页），笔记页、书籍详情弹层
+ * 也只在用户点开时才用到。拆出去能少解析一部分，也让首屏的可执行代码更聚焦。
+ * 注意这些页面都是命名导出，lazy 需要转成 default。
+ */
+const SettingsPage = lazy(() =>
+  import('@/pages/SettingsPage').then((m) => ({ default: m.SettingsPage }))
+)
+const NotesPage = lazy(() => import('@/pages/NotesPage').then((m) => ({ default: m.NotesPage })))
+const BookDetail = lazy(() =>
+  import('@/components/BookDetail').then((m) => ({ default: m.BookDetail }))
+)
 
 export default function App() {
   const { hydrated, hydrate, ui, settings } = useStore()
@@ -127,19 +141,30 @@ export default function App() {
         <div className="app-main">
           <TopBar />
           <main className="app-content" ref={contentRef}>
-            {ui.tab === 'library' ? (
-              <LibraryPage />
-            ) : ui.tab === 'profile' ? (
-              <SettingsPage />
-            ) : ui.tab === 'notes' ? (
-              <NotesPage />
-            ) : (
-              <PlaceholderPage tab={ui.tab} />
-            )}
+            {/* 首屏只加载书架；切页时短暂留白用骨架兜住，避免布局塌陷 */}
+            <Suspense fallback={<div className="page-suspense" />}>
+              {ui.tab === 'library' ? (
+                <LibraryPage />
+              ) : ui.tab === 'profile' ? (
+                <SettingsPage />
+              ) : ui.tab === 'notes' ? (
+                <NotesPage />
+              ) : (
+                <PlaceholderPage tab={ui.tab} />
+              )}
+            </Suspense>
           </main>
         </div>
       </div>
-      <AnimatePresence>{ui.selectedId && <BookDetail />}</AnimatePresence>
+      <AnimatePresence>
+        {ui.selectedId && (
+          <Suspense fallback={null}>
+            <BookDetail />
+          </Suspense>
+        )}
+      </AnimatePresence>
+      {/* 拖拽导入：挂在应用根上，任何页面都能拖入 */}
+      <DropZone />
       <Toast />
     </div>
   )

@@ -85,6 +85,15 @@ export interface MoyuAPI {
   exportDiagnostics(): Promise<{ ok: boolean; path?: string; canceled?: boolean; error?: string }>
   /** 兜底页用：关闭发起请求的窗口 */
   selfClose(): void
+  /**
+   * 拖入文件的真实路径。
+   *
+   * Electron 32 起移除了 `File.path`，必须用 `webUtils.getPathForFile`；
+   * 该 API 只在 preload 可用，所以桥一层。拿不到路径（非真实文件）返回 null。
+   */
+  resolveDroppedFile(
+    file: File
+  ): { name: string; size: number; path: string } | null
 }
 
 declare global {

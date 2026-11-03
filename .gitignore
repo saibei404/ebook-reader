@@ -36,3 +36,7 @@ Thumbs.db
 
 # 验证截图（本地保留，不入库）
 test-fixtures/_verify/*.png
+
+# vitest 缓存/覆盖率产物
+.vitest-cache/
+coverage/

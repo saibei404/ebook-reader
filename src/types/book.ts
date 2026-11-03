@@ -55,6 +55,45 @@ export interface Bookmark {
   createdAt: number
 }
 
+/** 高亮/笔记配色（4 色，深色主题下同色系降亮） */
+export type AnnotationColor = 'yellow' | 'green' | 'blue' | 'pink'
+
+export const ANNOTATION_COLORS: { id: AnnotationColor; label: string }[] = [
+  { id: 'yellow', label: '黄' },
+  { id: 'green', label: '绿' },
+  { id: 'blue', label: '蓝' },
+  { id: 'pink', label: '粉' },
+]
+
+/**
+ * 高亮 / 笔记（书摘）。
+ *
+ * 定位双轨：
+ * - 文本类（TXT/MD/FB2/DOCX）：`locator` 指向起点（kind='offset'），`endOffset` 为终点字符偏移；
+ * - EPUB：`cfiRange` 存 epub.js 的 CFI Range 字符串，`locator` 只用于跳转与展示。
+ * 两条轨道都保留 `chapterTitle` 与 `excerpt` 快照——即使原文改版导致锚点失效，笔记内容本身不丢。
+ */
+export interface Annotation {
+  id: string
+  bookId: string
+  /** highlight：仅高亮；note：高亮 + 备注（有备注的高亮同时出现在笔记页） */
+  type: 'highlight' | 'note'
+  color: AnnotationColor
+  locator: Locator
+  /** 文本类高亮终点（全文字符偏移，开区间） */
+  endOffset?: number
+  /** EPUB 高亮范围（CFI Range） */
+  cfiRange?: string
+  /** 章名快照 */
+  chapterTitle: string
+  /** 摘录原文（最多 500 字，避免长段落把库撑大） */
+  excerpt: string
+  /** 用户备注 */
+  note?: string
+  createdAt: number
+  updatedAt: number
+}
+
 export type AnimMode = 'flip' | 'fade' | 'zoom' | 'slide' | 'stack'
 export type MaterialStyle = 'frosted' | 'acrylic' | 'mica' | 'solid'
 export type CardSize = 'sm' | 'md' | 'lg'

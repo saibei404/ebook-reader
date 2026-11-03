@@ -1,6 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
-import ePub, { type Book as EpubBook, type Rendition } from 'epubjs'
-import type { Locator } from '@/types/book'
+import ePub, { EpubCFI, type Book as EpubBook, type Rendition } from 'epubjs'
+import type { Annotation, AnnotationColor, Locator } from '@/types/book'
+
+export interface EpubSelection {
+  cfiRange: string
+  text: string
+  x: number
+  top: number
+}
 
 interface Props {
   data: ArrayBuffer
@@ -12,9 +19,38 @@ interface Props {
   onLocate: (loc: Locator) => void
   onToc: (items: { label: string; href: string; depth: number }[]) => void
   onError: (msg: string) => void
+  /** 已有高亮（CFI Range） */
+  annotations?: Annotation[]
+  onSelect?: (sel: EpubSelection | null) => void
+  onHighlightClick?: (id: string) => void
 }
 
-type Contents = { document?: Document }
+/** 高亮配色（iframe 内的 ::highlight 伪元素） */
+const EPUB_COLORS: AnnotationColor[] = ['yellow', 'green', 'blue', 'pink']
+
+const EPUB_HL_CSS: Record<AnnotationColor, string> = {
+  yellow: 'rgba(250, 204, 21, 0.38)',
+  green: 'rgba(52, 211, 153, 0.34)',
+  blue: 'rgba(96, 165, 250, 0.34)',
+  pink: 'rgba(244, 114, 182, 0.34)',
+}
+
+/** 往章节文档注入一次高亮样式（::highlight 只在注册表所在文档生效） */
+function ensureHighlightStyle(doc: Document): void {
+  if (doc.querySelector('style[data-moyu-hl]')) return
+  const style = doc.createElement('style')
+  style.setAttribute('data-moyu-hl', '1')
+  style.textContent = EPUB_COLORS.map(
+    (c) => `::highlight(moyu-hl-${c}) { background-color: ${EPUB_HL_CSS[c]}; }`
+  ).join('\n')
+  ;(doc.head ?? doc.documentElement).appendChild(style)
+}
+
+type Contents = {
+  document?: Document
+  window?: Window
+  cfiFromRange?: (range: Range) => string
+}
 
 /**
  * EPUB 渲染（epub.js）。
@@ -34,14 +70,40 @@ function hexLuminance(hex: string): number {
   return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255
 }
 
-export function EpubReader({ data, fontSize, lineHeight, bg, fg, initialLocator, onLocate, onToc, onError }: Props) {
+export function EpubReader({
+  data,
+  fontSize,
+  lineHeight,
+  bg,
+  fg,
+  initialLocator,
+  onLocate,
+  onToc,
+  onError,
+  annotations = [],
+  onSelect,
+  onHighlightClick,
+}: Props) {
   const hostRef = useRef<HTMLDivElement>(null)
   const bookRef = useRef<EpubBook | null>(null)
   const renditionRef = useRef<Rendition | null>(null)
   const [ready, setReady] = useState(false)
+  /** 首章是否已渲染完成（resize 与高亮都要等它） */
+  const readyRef = useRef(false)
   const locReady = useRef(false)
   const styleRef = useRef({ fontSize, lineHeight, bg, fg })
   const reapplyRef = useRef<(() => void) | null>(null)
+  /** 回调走 ref：初次初始化只跑一次（依赖 data），不能因回调变化重建整本书 */
+  const onSelectRef = useRef(onSelect)
+  const onHighlightClickRef = useRef(onHighlightClick)
+  const annotationsRef = useRef<Annotation[]>(annotations)
+  onSelectRef.current = onSelect
+  onHighlightClickRef.current = onHighlightClick
+  annotationsRef.current = annotations
+  /** 已渲染的高亮 Range（点击命中检测用） */
+  const rangeMapRef = useRef<{ id: string; range: Range }[]>([])
+  /** 重挂载高亮的函数（初始化时写入，annotations 变化时调用） */
+  const applyAnnoRef = useRef<(() => void) | null>(null)
   /** 最近一次 relocated 的 CFI 与百分比；滚动上报时复用 */
   const lastRef = useRef<{ cfi: string; percent: number }>({ cfi: '', percent: 0 })
   /** 主动上报当前位置（display / 跳章后调用） */
@@ -211,8 +273,131 @@ export function EpubReader({ data, fontSize, lineHeight, bg, fg, initialLocator,
       })
     }
 
-    // 每个章节加载完成后注入样式
-    rendition.hooks.content.register((contents: Contents) => applyStyle(contents))
+    /** iframe 内的选区：CFI Range + 视口坐标（加上 iframe 偏移，供外层工具条定位） */
+    const attachSelection = (contents: Contents) => {
+      const doc = contents.document
+      const win = contents.window
+      if (!doc || !win) return
+      const flag = doc as Document & { __moyuSel?: boolean }
+      if (flag.__moyuSel) return
+      flag.__moyuSel = true
+
+      const report = () => {
+        if (!onSelectRef.current) return
+        let sel: Selection | null = null
+        try {
+          sel = win.getSelection()
+        } catch {
+          return
+        }
+        if (!sel || sel.isCollapsed || sel.rangeCount === 0) return
+        const range = sel.getRangeAt(0)
+        const text = sel.toString().replace(/\s+/g, ' ').trim()
+        if (!text) return
+        let cfiRange = ''
+        try {
+          cfiRange = contents.cfiFromRange?.(range) ?? ''
+        } catch {
+          cfiRange = ''
+        }
+        if (!cfiRange) return
+        const r = range.getBoundingClientRect()
+        const frame = doc.defaultView?.frameElement as HTMLElement | null
+        const fr = frame?.getBoundingClientRect()
+        onSelectRef.current({
+          cfiRange,
+          text,
+          x: (fr?.left ?? 0) + r.left + r.width / 2,
+          top: (fr?.top ?? 0) + r.top,
+        })
+      }
+      doc.addEventListener('mouseup', () => window.setTimeout(report, 0))
+      doc.addEventListener('mousedown', () => onSelectRef.current?.(null))
+      // 点击已有高亮 → 交回外层打开备注气泡
+      doc.addEventListener('click', (e) => {
+        const caret = doc.caretRangeFromPoint?.(e.clientX, e.clientY)
+        if (!caret) return
+        const hit = rangeMapRef.current.find(({ range }) => {
+          try {
+            return range.isPointInRange(caret.startContainer, caret.startOffset)
+          } catch {
+            return false
+          }
+        })
+        if (hit) onHighlightClickRef.current?.(hit.id)
+      })
+    }
+
+    // 每个章节加载完成后注入样式 + 挂选区监听
+    rendition.hooks.content.register((contents: Contents) => {
+      applyStyle(contents)
+      attachSelection(contents)
+    })
+
+    /**
+     * 高亮应用：不用 epub.js 的 annotations 模块（它依赖 sectionIndex 与 view 对齐，
+     * 在 scrolled-doc + 单章重复渲染时经常「无异常但不出现」），
+     * 改为在 iframe 文档里直接把 CFI Range 注册到 CSS Custom Highlight API，
+     * 与文本类高亮共用一套思路：不改 DOM、可随时清除重挂。
+     */
+    const applyAnnotations = () => {
+      const contentsList =
+        (rendition as unknown as { getContents?: () => Contents[] }).getContents?.() ?? []
+      let applied = 0
+      const ranges: { id: string; range: Range }[] = []
+      for (const c of contentsList) {
+        const doc = c.document
+        const win = c.window as
+          | (Window & { CSS?: { highlights?: Map<string, unknown> }; Highlight?: unknown })
+          | undefined
+        if (!doc || !win) continue
+        const registry = win.CSS?.highlights
+        const HighlightCtor =
+          (win as { Highlight?: new (...r: Range[]) => unknown }).Highlight ??
+          (typeof Highlight !== 'undefined' ? Highlight : null)
+        if (!registry || !HighlightCtor) continue
+
+        ensureHighlightStyle(doc)
+        for (const color of EPUB_COLORS) registry.delete(`moyu-hl-${color}`)
+        const groups = new Map<AnnotationColor, Range[]>()
+        for (const a of annotationsRef.current) {
+          if (!a.cfiRange) continue
+          let range: Range | null = null
+          try {
+            range = new EpubCFI(a.cfiRange).toRange(doc) ?? null
+          } catch {
+            range = null
+          }
+          if (!range) continue
+          const arr = groups.get(a.color) ?? []
+          arr.push(range)
+          groups.set(a.color, arr)
+          ranges.push({ id: a.id, range })
+          applied += 1
+        }
+        for (const [color, list] of groups) {
+          try {
+            registry.set(`moyu-hl-${color}`, new HighlightCtor(...list))
+          } catch {
+            /* 内核不支持时忽略 */
+          }
+        }
+      }
+      rangeMapRef.current = ranges
+      ;(window as unknown as { __moyuAnno?: unknown }).__moyuAnno = {
+        calls: ((window as unknown as { __moyuAnno?: { calls?: number } }).__moyuAnno?.calls ?? 0) + 1,
+        total: annotationsRef.current.length,
+        applied,
+        docs: contentsList.length,
+      }
+    }
+    applyAnnoRef.current = applyAnnotations
+    rendition.on('rendered', () => {
+      if (disposed) return
+      window.setTimeout(() => {
+        if (!disposed) applyAnnotations()
+      }, 150)
+    })
 
     reapplyRef.current = () => {
       try {
@@ -224,8 +409,12 @@ export function EpubReader({ data, fontSize, lineHeight, bg, fg, initialLocator,
     }
 
     // 窗口尺寸变化时同步 iframe
+    // 注意：首章渲染完成前不得调用 resize —— 可见窗口在 show 后会立即触发一次
+    // ResizeObserver 回调，此时 epub.js 还没有任何 view，resize 会打断 display 流程，
+    // 表现为「有 .epub-container、但永远没有 iframe、也没有报错」。
     let raf = 0
     const ro = new ResizeObserver(() => {
+      if (!readyRef.current) return
       cancelAnimationFrame(raf)
       raf = requestAnimationFrame(() => {
         const nw = host.clientWidth
@@ -271,6 +460,7 @@ export function EpubReader({ data, fontSize, lineHeight, bg, fg, initialLocator,
       .display(startCfi ?? targetHref)
       .then(async () => {
         if (disposed) return
+        readyRef.current = true
         setReady(true)
 
         // 校验：display 后若章节不符（CFI 属于旧版/异常），用 href 二次定位
@@ -336,6 +526,8 @@ export function EpubReader({ data, fontSize, lineHeight, bg, fg, initialLocator,
       ro.disconnect()
       cancelAnimationFrame(raf)
       reapplyRef.current = null
+      applyAnnoRef.current = null
+      rangeMapRef.current = []
       try {
         rendition.destroy()
       } catch {
@@ -427,6 +619,12 @@ export function EpubReader({ data, fontSize, lineHeight, bg, fg, initialLocator,
       /* ignore */
     }
   }, [fontSize, lineHeight, bg, fg, ready])
+
+  // 注解增删改：重新挂载高亮（不重建整本书）
+  useEffect(() => {
+    if (!ready) return
+    applyAnnoRef.current?.()
+  }, [annotations, ready])
 
   return <div className="epub-host" ref={hostRef} />
 }

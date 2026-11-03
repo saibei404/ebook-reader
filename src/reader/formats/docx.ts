@@ -64,9 +64,15 @@ export async function docxToChapters(data: ArrayBuffer): Promise<DocxResult> {
       cur = null
       return
     }
-    // 章标题必须写回 html：TextReader 只渲染 chapter.html，不单独渲染 title
+    // 章标题必须写回 html：TextReader 渲染的是 chapter 的 HTML，不单独渲染 title
     const heading = cur.title && cur.title !== '正文' ? `<h1>${escapeHtml(cur.title)}</h1>` : ''
-    chapters.push({ title: cur.title, html: heading + body, startChar, charCount: cur.chars })
+    chapters.push({
+      title: cur.title,
+      body: heading + body,
+      source: 'html',
+      startChar,
+      charCount: cur.chars,
+    })
     cur = null
   }
 
@@ -93,7 +99,8 @@ export async function docxToChapters(data: ArrayBuffer): Promise<DocxResult> {
   if (!chapters.length && result.value.trim()) {
     chapters.push({
       title: '正文',
-      html: result.value,
+      body: result.value,
+      source: 'html',
       startChar: 0,
       charCount: TEXT_ONLY(result.value).length,
     })

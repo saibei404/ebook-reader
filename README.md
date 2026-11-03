@@ -1,6 +1,8 @@
 # 墨鱼阅读器 · Moyu Reader
 
-本地优先的跨平台电子阅读器 **MVP**——当前交付「首页展示模块」：多动效书架、自定义封面、多格式自定义壁纸（五种显示模式）、多材质标签栏、液态玻璃导航栏、摸鱼键（老板键）与系统托盘。
+本地优先的跨平台电子阅读器——七种格式可读（TXT/MD/EPUB/PDF/FB2/DOCX/CBZ），带位置记忆、书签、高亮与笔记、全篇搜索、备份导入导出，以及「摸鱼」场景必备的老板键与托盘常驻。
+
+> 当前基线 **v29**：在 v28 的多格式内核之上补齐了大文件性能（惰性渲染 + 分批挂载）、高亮/笔记闭环与备份导入，并为核心纯函数补了 113 个单元测试。
 
 ## 快速开始
 
@@ -8,7 +10,9 @@
 npm install          # 安装依赖（Electron 二进制会自动下载）
 npm run dev          # 开发模式（热更新）
 npm run build        # 构建 main / preload / renderer
-npm run shot         # 自动化视觉测试：21 个界面状态截图到 screenshots/
+npm run shot         # 自动化视觉测试：28 个界面状态截图到 screenshots/
+npm test             # 单元测试（vitest，113 用例）
+npm run test:cov     # 单测 + 覆盖率（核心纯函数 > 80%）
 npm run dist:portable# 打包免安装 exe 到 release/
 npm run dev:web      # 仅以前端方式预览（无原生能力）
 ```
@@ -30,11 +34,17 @@ npm run dev:web      # 仅以前端方式预览（无原生能力）
 | 展示动效 | 翻页（3D rotateY 弹簧）、淡入、缩放、滑入、堆叠，切换即重播；卡片 hover 浮起 + 指针跟随 3D 倾斜 + 高光 |
 | 封面 | 14 本种子书程序化生成封面（canvas 渐变 + 书名 + 格式徽标，3:4）；支持本地图片更换、随机生成、恢复默认 |
 | 壁纸 | 三套预设（深海/暮色/晨雾）+ 本地导入（JPEG/PNG/WebP/GIF/BMP/AVIF/HEIC/TIFF + MP4/WebM/MOV，导入时解码探测）；五种显示模式（覆盖/填充/居中/适应/拉伸）+ 缩放，实时预览自动保存；遮罩浓度可调 |
-| 标签栏 | 书架 / 探索 / 笔记 / 我的 四入口（探索、笔记为占位页）；磨砂玻璃 / 亚克力 / 云母 / 纯色四材质即时切换 |
+| 阅读内核 | 独立全屏 `reader.html` 窗口；TXT/MD/EPUB/PDF/FB2/DOCX/CBZ 七格式；排版面板（字号/行距/宽度/字体/主题）；目录；Esc 退出 |
+| 位置记忆 | `locator` 四类定位（CFI/页码/字符偏移/图片序号）+ 退出前 flush；跨窗口 BroadcastChannel 同步书架圆环 |
+| 大文件 | 章节 HTML 惰性生成 + 分批挂载（3MB TXT 首开 ≈290ms，只挂 21/508 章）；PDF 走 `moyu-file://` 协议 Range 流式 |
+| 书签 / 高亮 / 笔记 | 书签面板与详情页列表；选中正文四色高亮（CSS Custom Highlight API，不改 DOM）；EPUB 用 CFI Range；备注可在阅读器或「笔记」页编辑；导出 Markdown |
+| 全篇搜索 | 文本类全篇搜索（章节索引 + 片段 + 点击精确跳转）；PDF/EPUB/CBZ 明确提示 |
+| 备份 | 单个 JSON 导出（书籍/位置/书签/笔记/设置）+ 导入合并去重（不倒退进度、重复导入幂等） |
+| 标签栏 | 书架 / 笔记 / 我的 三入口；磨砂玻璃 / 亚克力 / 云母 / 纯色四材质即时切换 |
 | 导航栏 | 透明默认，滚动 >24px 切换液态玻璃；品牌返回、页面标题、中央搜索、书签/导入/壁纸/主题快捷操作；支持性能降级与减少动态效果 |
 | 摸鱼键 | 默认 `Alt+X` 全局隐藏/恢复（可录制更改；录制时忽略单独修饰键，注册失败自动提示不写入）；关闭窗口 = 隐藏到托盘；托盘单击 toggle、右键菜单；阅读位置本地持久化，恢复后保持 |
 | 主题 | 深色 / 浅色，全部表面同步切换 |
-| 数据 | IndexedDB 本地存储（书籍/封面/壁纸/设置），完全离线；支持清空重建 |
+| 数据 | IndexedDB v3 本地存储（书籍/封面/壁纸/设置/书签/笔记），完全离线；支持备份、导入、清空重建 |
 | 网盘导入 | WebDAV 协议导入（坚果云/Nextcloud/群晖 DSM 等）：连接→目录浏览→勾选书籍→下载入架；凭据仅存本机 IndexedDB；失败逐本提示 |
 
 ## 技术栈与选型说明
@@ -44,29 +54,32 @@ npm run dev:web      # 仅以前端方式预览（无原生能力）
 - **Zustand**：四类状态（books / settings / covers / wallpapers）+ UI 状态单 store。
 - **idb**：IndexedDB 封装。
 - 主进程职责：窗口（无边框 + 自定义标题栏）、托盘、全局快捷键、原生文件对话框。
-- **设计规范**：见 [DESIGN.md](./DESIGN.md)（组件参数分固定要求 / 可配置 / 建议默认三级）。
+- **设计规范**：见 [DESIGN.md](./DESIGN.md)（组件参数分固定要求 / 可配置 / 建议默认三级）与 [DESIGN-GUIDE.md](./DESIGN-GUIDE.md)（设计取向与取舍）。
+- **阅读内核 / 格式矩阵**：见 [READER-FORMATS.md](./READER-FORMATS.md)；排期与已知缺陷见 [ROADMAP.md](./ROADMAP.md)。
+- **单元测试**：vitest + jsdom + fake-indexeddb，覆盖分章、字符偏移换算、Markdown 渲染、备份合并、DB 迁移（v2→v3）。
 
 ## 目录结构
 
 ```
 ebook-reader/
 ├── electron/
-│   ├── main.ts            # 主进程：窗口/托盘/老板键/IPC/截图测试模式
+│   ├── main.ts            # 主进程：窗口/托盘/老板键/IPC/协议/自检钩子
 │   ├── preload.ts         # contextBridge 安全桥
-│   └── we.ts              # Wallpaper Engine 探测与同步
+│   ├── netpan.ts          # WebDAV
+│   └── baidu.ts           # 百度网盘 OpenAPI
 ├── src/
 │   ├── components/        # TabBar/TopBar/BookCard/BookGrid/BookDetail/WallpaperLayer/Toast/Icons
-│   ├── pages/             # LibraryPage / SettingsPage
+│   ├── pages/             # LibraryPage / NotesPage / SettingsPage
+│   ├── reader/            # 阅读窗口：ReaderApp / locator / text-utils / text-range / chapter-window / formats/*
 │   ├── store/useStore.ts  # Zustand 状态机
-│   ├── lib/               # db(IDB) / cover(程序化封面) / seed / anim(动效变体) / native(桥)
+│   ├── lib/               # db(IDB) / backup / annotations / cover / seed / anim / native / perf
 │   ├── styles/global.css  # 主题变量 + 四套材质系统
 │   └── types/book.ts      # 契约层
-├── scripts/
-│   ├── gen_assets.py      # 程序化生成图标与壁纸（纯标准库）
-│   └── run.cjs            # 带环境清理的 dev/shot 启动器
+├── tests/                 # vitest 单测（text-utils / locator / backup / annotations / db）
+├── scripts/               # run.cjs / gen_* 样本生成 / probe-reader.cjs 诊断
+├── test-fixtures/         # 七格式排版验证样本
 ├── resources/             # 应用图标（ico/png/tray）
-├── public/assets/         # 渲染层资产（logo/壁纸/托盘图）
-└── screenshots/           # npm run shot 产出的 14 张状态截图
+└── screenshots/           # npm run shot 产出的 28 张状态截图
 ```
 
 ## 已知约束

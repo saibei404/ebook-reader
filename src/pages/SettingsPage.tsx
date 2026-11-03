@@ -4,7 +4,7 @@ import { useStore } from '@/store/useStore'
 import { ANIM_MODES, MATERIALS, WALLPAPER_FITS } from '@/types/book'
 import { nativeApi } from '@/lib/native'
 import { formatSize } from '@/lib/format'
-import { exportBackup } from '@/lib/backup'
+import { exportBackup, importBackup } from '@/lib/backup'
 import { getDB, setKV } from '@/lib/db'
 import {
   IconSun,
@@ -608,15 +608,63 @@ function DataSection() {
   const { books, wallpapers, covers, toast, addBooksFromFiles, addBooksFromPicked, hydrate } = useStore()
 
   const clearAll = async () => {
-    if (!window.confirm('确定清空全部书籍、封面与壁纸？此操作不可恢复。')) return
+    if (!window.confirm('确定清空全部书籍、封面、壁纸、书签与笔记？此操作不可恢复。')) return
     const db = await getDB()
     await db.clear('books')
     await db.clear('covers')
     await db.clear('wallpapers')
+    // 书签/笔记是 v2/v3 才有的表，旧库不存在时忽略
+    for (const store of ['bookmarks', 'annotations'] as const) {
+      if (db.objectStoreNames.contains(store)) await db.clear(store)
+    }
     toast('已清空，正在重新初始化…', 'info')
     setTimeout(() => {
       void hydrate()
     }, 400)
+  }
+
+  /** 导入备份：合并去重（不覆盖用户已读得更远的进度） */
+  const onImport = async () => {
+    let text = ''
+    if (nativeApi?.openTextFile) {
+      const r = await nativeApi.openTextFile()
+      if (!r.ok) {
+        if (!r.canceled) toast(`读取备份失败：${r.error ?? '未知错误'}`, 'err')
+        return
+      }
+      text = r.content ?? ''
+    } else {
+      text = await new Promise<string>((resolve) => {
+        const input = document.createElement('input')
+        input.type = 'file'
+        input.accept = '.json,application/json'
+        input.onchange = () => {
+          const f = input.files?.[0]
+          if (!f) {
+            resolve('')
+            return
+          }
+          const rd = new FileReader()
+          rd.onload = () => resolve(String(rd.result ?? ''))
+          rd.onerror = () => resolve('')
+          rd.readAsText(f)
+        }
+        input.click()
+      })
+      if (!text) return
+    }
+
+    const res = await importBackup(text)
+    if (!res.ok) {
+      toast(`导入失败：${res.error ?? '未知错误'}`, 'err')
+      return
+    }
+    await hydrate()
+    const s = res.stats
+    toast(
+      `导入完成：新增 ${s?.addedBooks ?? 0} 本 / 合并 ${s?.mergedBooks ?? 0} 本 · 书签 +${s?.addedBookmarks ?? 0} · 笔记 +${s?.addedAnnotations ?? 0}`,
+      'ok'
+    )
   }
 
   return (
@@ -686,14 +734,18 @@ function DataSection() {
             <IconDatabase size={14} />
             <span>导出备份</span>
           </button>
+          <button className="tbtn" onClick={() => void onImport()}>
+            <IconDatabase size={14} />
+            <span>导入备份</span>
+          </button>
           <button className="tbtn danger" onClick={clearAll}>
             <IconTrash size={14} />
             <span>清空全部数据</span>
           </button>
         </div>
         <p className="set-desc">
-          备份为单个 JSON：含书架元数据、阅读位置、书签与全部设置；不含壁纸与封面图片（封面可按种子重建，
-          壁纸体积大）。清空数据前建议先导出一份。
+          备份为单个 JSON：含书架元数据、阅读位置、书签、笔记与全部设置；不含壁纸与封面图片（封面可按种子重建，
+          壁纸体积大）。导入采用「合并去重」：同一本书只保留一份，读到更晚的位置不会被覆盖。
         </p>
       </section>
     </>

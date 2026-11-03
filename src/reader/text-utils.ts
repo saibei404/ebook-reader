@@ -25,18 +25,83 @@ export function decodeText(buf: ArrayBuffer): { text: string; encoding: string }
   }
 }
 
+/**
+ * 章节源类型：
+ * - `text`：纯文本（TXT），HTML 延迟到首次渲染时才转义生成；
+ * - `html`：已是 HTML（MD / DOCX / FB2 预处理产物），直接渲染。
+ */
+export type ChapterSource = 'text' | 'html'
+
 export interface Chapter {
   title: string
-  html: string
-  /** 该章首个字符在全文中的偏移，用于 locator(offset) 定位 */
+  /** 章节正文源。`text` 为纯文本（未转义），`html` 为已生成的 HTML */
+  body: string
+  source: ChapterSource
+  /**
+   * 标题（需要以 <h2> 渲染时才有），字符空间里排在正文之前。
+   * 与 title 分开是为了让「字符偏移 → DOM 文本偏移」一一对应：
+   * DOM 里标题文字也占字符位，若不计数会导致每个高亮锚点整体前移一个标题宽度。
+   */
+  heading?: string
+  /** HTML 缓存：首次渲染生成后写回，避免重复转义（3MB TXT 全量转义曾是首开卡顿主因） */
+  html?: string
+  /** 该章首个字符在全文中的偏移（文本类按「去掉换行后的字符数」累计，与 DOM 文本长度一致） */
   startChar: number
+  /** 该章纯文本字符数（不含标签/换行） */
   charCount: number
 }
 
 const CHAPTER_RE =
   /^\s*(?:第\s*[0-9零一二三四五六七八九十百千万两]+\s*[章回节卷篇部集]|Chapter\s+\d+|CHAPTER\s+\d+|[0-9]{1,3}[、.．]\s*\S)/im
 
-/** 纯文本 → 章节（按常见章节标题切分；无标题则整体一章并按长度分块） */
+/** 文本字符数：去掉换行后的长度。DOM 的 textContent 不含 <br/> 与段落分隔，两边必须同口径 */
+export function countTextChars(text: string): number {
+  let n = 0
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i)
+    if (c !== 10 && c !== 13) n++
+  }
+  return n
+}
+
+/** 纯文本段落 → HTML（按空行分段，段内换行转 <br/>） */
+export function textToHtml(body: string): string {
+  const trimmed = body.trim()
+  if (!trimmed) return ''
+  return trimmed
+    .split(/\n{2,}/)
+    .map((p) => `<p>${escapeHtml(p).replace(/\n/g, '<br/>')}</p>`)
+    .join('')
+}
+
+/** 取章节 HTML：`text` 源按需生成并缓存（标题按 h2 渲染，字符空间里排在正文之前） */
+export function chapterHtml(c: Chapter): string {
+  if (c.source === 'html') return c.html ?? c.body
+  if (c.html == null) {
+    const head = c.heading ? `<h2>${escapeHtml(c.heading)}</h2>` : ''
+    c.html = head + textToHtml(c.body)
+  }
+  return c.html
+}
+
+/** HTML → 纯文本（搜索与字符偏移换算用） */
+export function htmlToText(html: string): string {
+  return html
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&amp;/g, '&')
+}
+
+/** 取章节纯文本（搜索/导出用，不含标签与换行，与 charCount 同口径） */
+export function chapterText(c: Chapter): string {
+  if (c.source === 'text') return c.body.replace(/\r?\n/g, '')
+  return htmlToText(c.html ?? c.body)
+}
+
+/** 纯文本 → 章节（按常见章节标题切分；无标题则整篇按长度分块） */
 export function splitPlainText(raw: string, chunkSize = 12000): Chapter[] {
   const text = raw.replace(/\r\n?/g, '\n')
   const lines = text.split('\n')
@@ -48,65 +113,58 @@ export function splitPlainText(raw: string, chunkSize = 12000): Chapter[] {
   }
 
   const chapters: Chapter[] = []
-  const pushChapter = (heading: string, body: string, startChar: number, showTitle = false) => {
+  /** 字符空间游标：只累计「去掉换行」的字符，保证与 DOM textContent 长度同口径 */
+  let cursor = 0
+
+  const pushChapter = (heading: string, body: string, showTitle = false) => {
     const trimmed = body.trim()
-    if (!trimmed) return
-    const bodyHtml = trimmed
-      .split(/\n{2,}/)
-      .map((p) => `<p>${escapeHtml(p).replace(/\n/g, '<br/>')}</p>`)
-      .join('')
+    if (!trimmed) {
+      // 空章也要推进游标（标题文字在 DOM 里已被 h2 渲染）
+      if (showTitle && heading) cursor += countTextChars(heading)
+      return
+    }
+    const charCount = countTextChars(trimmed) + (showTitle && heading ? heading.length : 0)
     chapters.push({
       title: heading || `第 ${chapters.length + 1} 节`,
-      html: (showTitle && heading ? `<h2>${escapeHtml(heading)}</h2>` : '') + bodyHtml,
-      startChar,
-      charCount: body.length,
+      body: trimmed,
+      source: 'text',
+      heading: showTitle && heading ? heading : undefined,
+      startChar: cursor,
+      charCount,
     })
+    cursor += charCount
   }
 
   if (marks.length === 0) {
     // 无章节标记：按字符数硬切，避免单章过长拖慢渲染
-    let cursor = 0
     for (let i = 0; i < text.length; i += chunkSize) {
-      const slice = text.slice(i, i + chunkSize)
-      chapters.push({
-        title: `第 ${chapters.length + 1} 节`,
-        html: slice
-          .split(/\n{2,}/)
-          .map((p) => `<p>${escapeHtml(p).replace(/\n/g, '<br/>')}</p>`)
-          .join(''),
-        startChar: i,
-        charCount: slice.length,
-      })
-      cursor = i
+      pushChapter(`第 ${chapters.length + 1} 节`, text.slice(i, i + chunkSize))
     }
     if (chapters.length === 0 && text.trim()) {
       chapters.push({
         title: '正文',
-        html: `<p>${escapeHtml(text)}</p>`,
+        body: text,
+        source: 'text',
         startChar: 0,
-        charCount: text.length,
+        charCount: countTextChars(text),
       })
     }
-    void cursor
     return chapters
   }
 
-  // 有序切分：标题行归入下一章
-  let start = 0
+  // 有序切分：标题行归入本章（作为 h2），正文为其后到下一个标题前的行
   for (let m = 0; m < marks.length; m++) {
     const idx = marks[m]
     const heading = lines[idx].trim()
     if (m === 0 && idx > 0) {
-      const preface = lines.slice(0, idx).join('\n')
-      pushChapter('前言', preface, 0)
-      start = text.indexOf(heading, 0)
+      pushChapter('前言', lines.slice(0, idx).join('\n'))
     }
     const nextIdx = m + 1 < marks.length ? marks[m + 1] : lines.length
-    const body = lines.slice(idx + 1, nextIdx).join('\n')
-    const startChar = text.indexOf(lines[idx], m === 0 ? 0 : text.indexOf(lines[marks[m - 1]], 0) + 1)
-    pushChapter(heading, body, startChar >= 0 ? startChar : start, true)
+    pushChapter(heading, lines.slice(idx + 1, nextIdx).join('\n'), true)
   }
-  return chapters.length ? chapters : [{ title: '正文', html: `<p>${escapeHtml(text)}</p>`, startChar: 0, charCount: text.length }]
+  return chapters.length
+    ? chapters
+    : [{ title: '正文', body: text, source: 'text', startChar: 0, charCount: countTextChars(text) }]
 }
 
 export function escapeHtml(s: string): string {
@@ -300,8 +358,8 @@ export function fb2ToChapters(buf: ArrayBuffer): Chapter[] {
     const html = renderSection(sec)
     if (!html) continue
     const title = (sec.querySelector(':scope > title')?.textContent || '').trim() || `第 ${chapters.length + 1} 节`
-    const charCount = html.replace(/<[^>]+>/g, '').length
-    chapters.push({ title, html, startChar: cursor, charCount })
+    const charCount = htmlToText(html).length
+    chapters.push({ title, body: html, source: 'html', startChar: cursor, charCount })
     cursor += charCount
   }
   // 部分 FB2 正文直接挂在 body > p（无 section）
@@ -313,7 +371,13 @@ export function fb2ToChapters(buf: ArrayBuffer): Chapter[] {
           .join('')
       : ''
     if (!html) throw new Error('FB2 中没有可显示的正文')
-    chapters.push({ title: '正文', html, startChar: 0, charCount: html.replace(/<[^>]+>/g, '').length })
+    chapters.push({
+      title: '正文',
+      body: html,
+      source: 'html',
+      startChar: 0,
+      charCount: htmlToText(html).length,
+    })
   }
   return chapters
 }

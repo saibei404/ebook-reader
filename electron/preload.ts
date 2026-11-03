@@ -20,6 +20,14 @@ export interface MoyuAPI {
     name: string,
     content: string
   ): Promise<{ ok: boolean; path?: string; canceled?: boolean; error?: string }>
+  /** 读取用户选择的文本文件（备份导入） */
+  openTextFile(): Promise<{
+    ok: boolean
+    path?: string
+    content?: string
+    canceled?: boolean
+    error?: string
+  }>
   readBook(
     p: string
   ): Promise<{
@@ -81,6 +89,7 @@ const api: MoyuAPI = {
   closeReader: () => ipcRenderer.send('moyu:close-reader'),
   readBook: (p) => ipcRenderer.invoke('moyu:read-book', p),
   saveTextFile: (name, content) => ipcRenderer.invoke('moyu:save-text', { name, content }),
+  openTextFile: () => ipcRenderer.invoke('moyu:open-text'),
   onReaderCrashed: (cb) => {
     const h = () => cb()
     ipcRenderer.on('moyu:reader-crashed', h)

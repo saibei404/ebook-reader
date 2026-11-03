@@ -10,6 +10,7 @@ import { BookDetail } from '@/components/BookDetail'
 import { Toast } from '@/components/Toast'
 import { LibraryPage } from '@/pages/LibraryPage'
 import { SettingsPage } from '@/pages/SettingsPage'
+import { NotesPage } from '@/pages/NotesPage'
 import { PlaceholderPage } from '@/pages/PlaceholderPage'
 
 export default function App() {
@@ -130,6 +131,8 @@ export default function App() {
               <LibraryPage />
             ) : ui.tab === 'profile' ? (
               <SettingsPage />
+            ) : ui.tab === 'notes' ? (
+              <NotesPage />
             ) : (
               <PlaceholderPage tab={ui.tab} />
             )}

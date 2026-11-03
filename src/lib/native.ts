@@ -18,6 +18,14 @@ export interface MoyuAPI {
     name: string,
     content: string
   ): Promise<{ ok: boolean; path?: string; canceled?: boolean; error?: string }>
+  /** 打开文件对话框并读取文本（备份导入） */
+  openTextFile(): Promise<{
+    ok: boolean
+    path?: string
+    content?: string
+    canceled?: boolean
+    error?: string
+  }>
   readBook(
     p: string
   ): Promise<{

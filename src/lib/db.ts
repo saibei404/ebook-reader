@@ -1,5 +1,5 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb'
-import type { Book, Bookmark } from '@/types/book'
+import type { Annotation, Book, Bookmark } from '@/types/book'
 
 export interface CoverRec {
   id: string
@@ -27,10 +27,16 @@ interface MoyuDB extends DBSchema {
     value: Bookmark
     indexes: { 'by-book': string }
   }
+  /** v3 新增：高亮 / 笔记（同样按书索引，笔记页聚合时另走全表） */
+  annotations: {
+    key: string
+    value: Annotation
+    indexes: { 'by-book': string }
+  }
 }
 
-/** 当前库版本：2（v1 → v2 仅新增 bookmarks 表，不动既有表） */
-export const DB_VERSION = 2
+/** 当前库版本：3（v2 → v3 仅新增 annotations 表，不动既有表） */
+export const DB_VERSION = 3
 
 let dbp: Promise<IDBPDatabase<MoyuDB>> | null = null
 
@@ -48,6 +54,10 @@ export function getDB(): Promise<IDBPDatabase<MoyuDB>> {
         if (oldVersion < 2) {
           const bm = db.createObjectStore('bookmarks', { keyPath: 'id' })
           bm.createIndex('by-book', 'bookId')
+        }
+        if (oldVersion < 3) {
+          const an = db.createObjectStore('annotations', { keyPath: 'id' })
+          an.createIndex('by-book', 'bookId')
         }
       },
     })
@@ -152,4 +162,40 @@ export async function deleteBookmarksOfBook(bookId: string): Promise<void> {
   const list = await db.getAllFromIndex('bookmarks', 'by-book', bookId)
   const tx = db.transaction('bookmarks', 'readwrite')
   await Promise.all([...list.map((b) => tx.store.delete(b.id)), tx.done])
+}
+
+/* ---------------- 高亮 / 笔记 ---------------- */
+
+export async function putAnnotation(a: Annotation): Promise<void> {
+  const db = await getDB()
+  await db.put('annotations', a)
+}
+
+export async function deleteAnnotation(id: string): Promise<void> {
+  const db = await getDB()
+  await db.delete('annotations', id)
+}
+
+/** 单本书的高亮/笔记（按位置排序，阅读器面板与详情页都用它） */
+export async function annotationsOfBook(bookId: string): Promise<Annotation[]> {
+  const db = await getDB()
+  const list = await db.getAllFromIndex('annotations', 'by-book', bookId)
+  return list.sort((a, b) => {
+    const av = Number(a.locator.value) || 0
+    const bv = Number(b.locator.value) || 0
+    if (av !== bv) return av - bv
+    return a.createdAt - b.createdAt
+  })
+}
+
+export async function allAnnotations(): Promise<Annotation[]> {
+  const db = await getDB()
+  return db.getAll('annotations')
+}
+
+export async function deleteAnnotationsOfBook(bookId: string): Promise<void> {
+  const db = await getDB()
+  const list = await db.getAllFromIndex('annotations', 'by-book', bookId)
+  const tx = db.transaction('annotations', 'readwrite')
+  await Promise.all([...list.map((a) => tx.store.delete(a.id)), tx.done])
 }

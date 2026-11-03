@@ -1,12 +1,26 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { Book, Bookmark, Locator } from '@/types/book'
-import { allBooks, getKV, bookmarksOfBook, putBookmark, deleteBookmark } from '@/lib/db'
+import type { Annotation, AnnotationColor, Book, Bookmark, Locator } from '@/types/book'
+import { ANNOTATION_COLORS } from '@/types/book'
+import {
+  allBooks,
+  getKV,
+  bookmarksOfBook,
+  putBookmark,
+  deleteBookmark,
+  annotationsOfBook,
+  putAnnotation,
+  deleteAnnotation,
+} from '@/lib/db'
 import { nativeApi } from '@/lib/native'
 import { createLocatorSaver } from './locator'
-import { decodeText, splitPlainText, markdownToHtml, fb2ToChapters, type Chapter } from './text-utils'
+import { decodeText, splitPlainText, markdownToHtml, fb2ToChapters, chapterText, htmlToText, type Chapter } from './text-utils'
+import { chapterIndexAtOffset } from './chapter-window'
 import { docxToChapters } from './formats/docx'
-import { TextReader } from './formats/TextReader'
+import { TextReader, type SelectionInfo } from './formats/TextReader'
+import type { EpubSelection } from './formats/EpubReader'
+import { clampExcerpt, makeAnnotationId, cfiStartOf } from '@/lib/annotations'
 import { DEFAULT_PREFS, FONT_STACK, loadPrefs, savePrefs, themeColors, type ReaderPrefs } from './reader-prefs'
+import { perfMark, perfRead } from '@/lib/perf'
 import './reader.css'
 
 // 重引擎按格式懒加载：TXT/FB2 用户不会为 epub.js / pdf.js 付出首屏成本
@@ -15,6 +29,22 @@ const PdfReader = lazy(() => import('./formats/PdfReader').then((m) => ({ defaul
 const ComicReader = lazy(() => import('./formats/ComicReader').then((m) => ({ default: m.ComicReader })))
 
 type Phase = 'loading' | 'ready' | 'error'
+
+/** 待处理选区：文本类用字符偏移，EPUB 用 CFI Range */
+type PendingSel =
+  | ({ kind: 'text' } & SelectionInfo)
+  | ({ kind: 'epub' } & EpubSelection)
+
+/** 笔记编辑气泡状态 */
+interface NotePop {
+  /** null = 从选区新建 */
+  annoId: string | null
+  color: AnnotationColor
+  text: string
+  quote: string
+  x: number
+  top: number
+}
 
 const UNSUPPORTED: Record<string, string> = {
   mobi: 'MOBI 为 Kindle 私有容器，当前版本不支持直接解析',
@@ -47,6 +77,11 @@ export function ReaderApp() {
   const currentLoc = useRef<Locator | null>(null)
   const [systemDark, setSystemDark] = useState(false)
   const [pagesInfo, setPagesInfo] = useState<{ pages: number } | null>(null)
+  /** 高亮 / 笔记 */
+  const [annotations, setAnnotations] = useState<Annotation[]>([])
+  const [annoOpen, setAnnoOpen] = useState(false)
+  const [sel, setSel] = useState<PendingSel | null>(null)
+  const [notePop, setNotePop] = useState<NotePop | null>(null)
 
   const saverRef = useRef<ReturnType<typeof createLocatorSaver> | null>(null)
   const hideTimer = useRef<number | null>(null)
@@ -149,14 +184,18 @@ export function ReaderApp() {
           if (warnings.length) console.warn('DOCX 转换告警:', warnings.slice(0, 3))
           setChapters(docChapters)
         } else if (res.data && (fmt === 'txt' || fmt === 'md' || fmt === 'fb2')) {
+          const tParse = performance.now()
           if (fmt === 'fb2') {
             setChapters(fb2ToChapters(res.data))
           } else {
             const { text } = decodeText(res.data)
+            perfMark('decode-done')
             setChapters(fmt === 'md' ? mdToChapters(text) : splitPlainText(text))
           }
+          perfMark('parse-done', { parseMs: Math.round(performance.now() - tParse) })
         }
         setPhase('ready')
+        perfMark('ready')
       } catch (e) {
         if (!disposed) {
           setError(`打开失败：${String((e as Error)?.message ?? e)}`)
@@ -192,7 +231,7 @@ export function ReaderApp() {
     const total = chapters.reduce((n, c) => n + c.charCount, 0) || 1
     const out: { id: string; label: string; snippet: string; locator: Locator }[] = []
     for (const c of chapters) {
-      const text = c.html.replace(/<[^>]+>/g, '')
+      const text = chapterText(c)
       const lower = text.toLowerCase()
       let idx = lower.indexOf(q)
       let hits = 0
@@ -278,6 +317,160 @@ export function ReaderApp() {
     flash('已删除书签')
   }
 
+  /* ---------- 高亮 / 笔记 ---------- */
+  useEffect(() => {
+    const id = book?.id
+    if (!id) return
+    let alive = true
+    void annotationsOfBook(id)
+      .then((list) => {
+        if (alive) setAnnotations(list)
+      })
+      .catch(() => {
+        if (alive) setAnnotations([])
+      })
+    return () => {
+      alive = false
+    }
+  }, [book?.id])
+
+  const totalCharsApprox = useMemo(
+    () => (chapters ?? []).reduce((s, c) => s + Math.max(1, c.charCount), 0),
+    [chapters]
+  )
+
+  const chapterTitleAt = (offset: number): string => {
+    if (!chapters?.length) return ''
+    return chapters[chapterIndexAtOffset(chapters, offset)]?.title ?? ''
+  }
+
+  /** 文本类高亮（区间型）→ TextReader 的渲染入参 */
+  const textHighlights = useMemo(
+    () =>
+      annotations
+        .filter((a) => typeof a.endOffset === 'number' && a.locator.kind === 'offset')
+        .map((a) => ({
+          id: a.id,
+          start: Number(a.locator.value),
+          end: Number(a.endOffset),
+          color: a.color,
+        })),
+    [annotations]
+  )
+
+  const clearSel = useCallback(() => {
+    window.getSelection()?.removeAllRanges()
+    setSel(null)
+  }, [])
+
+  /** 由当前选区构造一条注解（文本类走字符偏移，EPUB 走 CFI Range） */
+  const buildAnnotation = (color: AnnotationColor, note?: string): Annotation | null => {
+    if (!book || !sel) return null
+    const now = Date.now()
+    const trimmed = note?.trim() || undefined
+    const base = {
+      id: makeAnnotationId(now),
+      bookId: book.id,
+      type: (trimmed ? 'note' : 'highlight') as Annotation['type'],
+      color,
+      excerpt: clampExcerpt(sel.text),
+      note: trimmed,
+      createdAt: now,
+      updatedAt: now,
+    }
+    if (sel.kind === 'text') {
+      const title = chapterTitleAt(sel.start)
+      const pct = totalCharsApprox > 0 ? sel.start / totalCharsApprox : 0
+      return {
+        ...base,
+        locator: {
+          kind: 'offset',
+          value: sel.start,
+          percent: Math.min(1, Math.max(0, pct)),
+          label: title,
+          updatedAt: now,
+        },
+        endOffset: sel.end,
+        chapterTitle: title,
+      }
+    }
+    return {
+      ...base,
+      locator: {
+        kind: 'cfi',
+        value: cfiStartOf(sel.cfiRange),
+        percent: Math.min(1, Math.max(0, currentLoc.current?.percent ?? percent)),
+        label: label || '',
+        updatedAt: now,
+      },
+      cfiRange: sel.cfiRange,
+      chapterTitle: label || '',
+    }
+  }
+
+  const createFromSel = async (color: AnnotationColor, note?: string) => {
+    const a = buildAnnotation(color, note)
+    if (!a) return
+    await putAnnotation(a)
+    setAnnotations((prev) => [...prev, a])
+    clearSel()
+    setNotePop(null)
+    flash(note?.trim() ? '已保存笔记' : '已高亮')
+  }
+
+  /** 点击已有高亮 → 编辑备注 */
+  const openNoteFor = (id: string, at?: { x: number; top: number }) => {
+    const a = annotations.find((x) => x.id === id)
+    if (!a) return
+    setAnnoOpen(false)
+    const w = window.innerWidth
+    setNotePop({
+      annoId: a.id,
+      color: a.color,
+      text: a.note ?? '',
+      quote: a.excerpt,
+      x: Math.min(Math.max(at?.x ?? w / 2, 170), w - 170),
+      top: Math.max(160, at?.top ?? 260),
+    })
+  }
+
+  const saveNote = async () => {
+    if (!notePop) return
+    if (notePop.annoId) {
+      const target = annotations.find((a) => a.id === notePop.annoId)
+      if (!target) {
+        setNotePop(null)
+        return
+      }
+      const note = notePop.text.trim()
+      const next: Annotation = {
+        ...target,
+        note: note || undefined,
+        type: note ? 'note' : 'highlight',
+        updatedAt: Date.now(),
+      }
+      await putAnnotation(next)
+      setAnnotations((prev) => prev.map((a) => (a.id === next.id ? next : a)))
+      setNotePop(null)
+      flash(note ? '笔记已保存' : '已清空备注')
+      return
+    }
+    await createFromSel(notePop.color, notePop.text)
+  }
+
+  const removeAnno = async (id: string) => {
+    await deleteAnnotation(id)
+    setAnnotations((prev) => prev.filter((a) => a.id !== id))
+    setNotePop(null)
+    flash('已删除')
+  }
+
+  const jumpToAnno = (a: Annotation) => {
+    setAnnoOpen(false)
+    setNotePop(null)
+    jumpTo(a.locator)
+  }
+
   /** 跳转到书签：重新挂载阅读器并带入 jump 参数（各渲染器无需各自实现跳转） */
   const jumpTo = (loc: Locator) => {
     const raw = btoa(encodeURIComponent(JSON.stringify(loc)))
@@ -297,6 +490,20 @@ export function ReaderApp() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
+        if (notePop) {
+          setNotePop(null)
+          return
+        }
+        if (sel) {
+          clearSel()
+          return
+        }
+        if (annoOpen || bmOpen || searchOpen) {
+          setAnnoOpen(false)
+          setBmOpen(false)
+          setSearchOpen(false)
+          return
+        }
         if (settingsOpen) {
           setSettingsOpen(false)
           return
@@ -328,7 +535,7 @@ export function ReaderApp() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [exit, settingsOpen, tocOpen])
+  }, [exit, settingsOpen, tocOpen, notePop, sel, annoOpen, bmOpen, searchOpen, clearSel])
 
   // 页面隐藏/关闭前刷盘（摸鱼热键隐藏时也要保住位置）
   useEffect(() => {
@@ -417,6 +624,16 @@ export function ReaderApp() {
           书签{bookmarks.length > 0 ? ` ${bookmarks.length}` : ''}
         </button>
         <button
+          className={`rb${annoOpen ? ' active' : ''}`}
+          onClick={() => {
+            setAnnoOpen((v) => !v)
+            setSel(null)
+          }}
+          title="高亮与笔记"
+        >
+          笔记{annotations.length > 0 ? ` ${annotations.length}` : ''}
+        </button>
+        <button
           className={`rb${settingsOpen ? ' active' : ''}`}
           onClick={() => setSettingsOpen((v) => !v)}
           title="阅读设置"
@@ -477,6 +694,66 @@ export function ReaderApp() {
             </div>
           ))}
           {bookmarks.length === 0 && <div className="bm-empty">还没有书签，点「+ 当前位置」添加</div>}
+        </div>
+      )}
+
+      {/* 高亮 / 笔记 */}
+      {annoOpen && (
+        <div className="epub-nav anno-panel">
+          <div className="bm-head">
+            <span>高亮与笔记（{annotations.length}）</span>
+            <button
+              className="rb"
+              onClick={() => {
+                const loc = currentLoc.current
+                if (!loc) {
+                  flash('位置尚未就绪')
+                  return
+                }
+                void (async () => {
+                  if (!book) return
+                  const now = Date.now()
+                  const a: Annotation = {
+                    id: makeAnnotationId(now),
+                    bookId: book.id,
+                    type: 'note',
+                    color: 'yellow',
+                    locator: { ...loc, updatedAt: now },
+                    chapterTitle: loc.label || '',
+                    excerpt: '',
+                    note: '',
+                    createdAt: now,
+                    updatedAt: now,
+                  }
+                  await putAnnotation(a)
+                  setAnnotations((prev) => [...prev, a])
+                  setAnnoOpen(false)
+                  openNoteFor(a.id)
+                })()
+              }}
+              title="在当前页写一条笔记"
+            >
+              + 笔记
+            </button>
+          </div>
+          {annotations.map((a) => (
+            <div key={a.id} className="anno-row">
+              <button className="anno-main" onClick={() => jumpToAnno(a)} title={a.excerpt}>
+                <span className="anno-head">
+                  <span className="anno-chip" data-color={a.color} />
+                  {a.chapterTitle || '正文'} · {Math.round((a.locator.percent ?? 0) * 100)}%
+                </span>
+                {a.excerpt && <span className="anno-quote">{a.excerpt}</span>}
+                {a.note && <span className="anno-note">{a.note}</span>}
+              </button>
+              <button className="bm-del" onClick={() => void removeAnno(a.id)} title="删除">
+                ×
+              </button>
+            </div>
+          ))}
+          {annotations.length === 0 && (
+            <div className="bm-empty">选中正文即可高亮；带备注的高亮会出现在「笔记」页。</div>
+          )}
         </div>
       )}
 
@@ -596,6 +873,7 @@ export function ReaderApp() {
           <>
             {(fmt === 'txt' || fmt === 'md' || fmt === 'fb2' || fmt === 'docx') && chapters && (
               <TextReader
+                key={book.id}
                 chapters={chapters}
                 fontSize={prefs.fontSize}
                 lineHeight={prefs.lineHeight}
@@ -604,6 +882,9 @@ export function ReaderApp() {
                 initialLocator={startLocator ?? book.locator ?? null}
                 onLocate={onLocate}
                 htmlMode={fmt === 'md' || fmt === 'docx' || fmt === 'fb2'}
+                highlights={textHighlights}
+                onSelect={(s) => setSel(s ? { kind: 'text', ...s } : null)}
+                onHighlightClick={openNoteFor}
               />
             )}
             {fmt === 'epub' && data && (
@@ -617,6 +898,9 @@ export function ReaderApp() {
                   initialLocator={startLocator ?? book.locator ?? null}
                   onLocate={onLocate}
                   onToc={setToc}
+                  annotations={annotations}
+                  onSelect={(s) => setSel(s ? { kind: 'epub', ...s } : null)}
+                  onHighlightClick={(id) => openNoteFor(id)}
                   onError={(m) => {
                     setError(m)
                     setPhase('error')
@@ -658,6 +942,88 @@ export function ReaderApp() {
         )}
       </div>
 
+      {/* 选区工具条：选中正文后浮出，选色即高亮 */}
+      {sel && !notePop && (
+        <div
+          className="sel-bar"
+          style={{
+            left: Math.min(Math.max(sel.x, 112), window.innerWidth - 112),
+            top: Math.max(70, sel.top - 6),
+          }}
+        >
+          {ANNOTATION_COLORS.map((c) => (
+            <button
+              key={c.id}
+              className="sel-dot"
+              data-color={c.id}
+              title={`${c.label}色高亮`}
+              onClick={() => void createFromSel(c.id)}
+            />
+          ))}
+          <span className="sel-sep" />
+          <button
+            className="sel-btn"
+            onClick={() => {
+              if (!sel) return
+              setNotePop({
+                annoId: null,
+                color: 'yellow',
+                text: '',
+                quote: sel.text,
+                x: sel.x,
+                top: Math.max(150, sel.top - 6),
+              })
+            }}
+          >
+            写笔记
+          </button>
+          <button className="sel-btn" onClick={clearSel}>
+            取消
+          </button>
+        </div>
+      )}
+
+      {/* 笔记气泡：新建（带选区）或编辑已有高亮 */}
+      {notePop && (
+        <div className="note-pop" style={{ left: notePop.x, top: notePop.top }}>
+          {notePop.quote && <div className="note-pop-quote">{notePop.quote}</div>}
+          <textarea
+            autoFocus
+            value={notePop.text}
+            placeholder="写下你的想法…"
+            onChange={(e) =>
+              setNotePop((p) => (p ? { ...p, text: e.target.value } : p))
+            }
+          />
+          {notePop.annoId === null && (
+            <div className="note-pop-colors">
+              {ANNOTATION_COLORS.map((c) => (
+                <button
+                  key={c.id}
+                  className={`sel-dot${notePop.color === c.id ? ' active' : ''}`}
+                  data-color={c.id}
+                  title={`${c.label}色`}
+                  onClick={() => setNotePop((p) => (p ? { ...p, color: c.id } : p))}
+                />
+              ))}
+            </div>
+          )}
+          <div className="note-pop-actions">
+            {notePop.annoId && (
+              <button className="rb grow" onClick={() => void removeAnno(notePop.annoId!)}>
+                删除
+              </button>
+            )}
+            <button className="rb" onClick={() => setNotePop(null)}>
+              取消
+            </button>
+            <button className="rb" onClick={() => void saveNote()}>
+              保存
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* 底部进度 */}
       <div className="reader-foot">
         <div className="reader-progress-track">
@@ -679,15 +1045,17 @@ function mdToChapters(md: string): Chapter[] {
     if (!trimmed) continue
     const titleMatch = trimmed.match(/^#\s+(.+)$/m)
     const html = markdownToHtml(trimmed)
+    const chars = htmlToText(html).length
     chapters.push({
       title: titleMatch?.[1]?.trim() ?? `第 ${chapters.length + 1} 节`,
-      html,
+      body: html,
+      source: 'html',
       startChar: cursor,
-      charCount: trimmed.length,
+      charCount: chars,
     })
-    cursor += trimmed.length
+    cursor += chars
   }
-  return chapters.length
-    ? chapters
-    : [{ title: '正文', html: markdownToHtml(md), startChar: 0, charCount: md.length }]
+  if (chapters.length) return chapters
+  const html = markdownToHtml(md)
+  return [{ title: '正文', body: html, source: 'html', startChar: 0, charCount: htmlToText(html).length }]
 }

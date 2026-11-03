@@ -34,7 +34,9 @@ protocol.registerSchemesAsPrivileged([
 ])
 
 function toBookUrl(absPath: string): string {
-  return `moyu-file://f/${Buffer.from(absPath, 'utf8').toString('base64url')}`
+  // 必须绝对路径：协议处理器只接受 isAbsolute 的路径（相对路径会 404，PDF 表现为「无法打开」）
+  const abs = path.resolve(absPath)
+  return `moyu-file://f/${Buffer.from(abs, 'utf8').toString('base64url')}`
 }
 
 function bookUrlToPath(url: string): string | null {
@@ -194,6 +196,10 @@ function openReaderWin(bookId: string, jump?: string): void {
         preload: path.join(__dirname, '../preload/preload.js'),
         contextIsolation: true,
         sandbox: false,
+        // 关闭后台节流：阅读窗口常被其他窗口遮挡（摸鱼场景就是这么用的），
+        // 一旦 Chromium 判定为后台/被遮挡，计时器与 rAF 会被大幅降频，
+        // epub.js 的异步渲染管线会卡在「容器已建、iframe 迟迟不出现」的状态。
+        backgroundThrottling: false,
         // 必须与主窗口共用默认 session：
         // 1) IndexedDB 库（书架/定位/偏好）在同源同分区才可见，独立分区会读不到书；
         // 2) BroadcastChannel 也只在同一分区内通信，位置变更无法回传书架。
@@ -514,16 +520,42 @@ function registerIPC(): void {
     try {
       if (typeof payload?.content !== 'string') return { ok: false, error: '内容为空' }
       const name = typeof payload?.name === 'string' && payload.name ? payload.name : 'moyu-backup.json'
+      const isMd = /\.md$/i.test(name)
       const opts: Electron.SaveDialogOptions = {
-        title: '导出备份',
+        title: isMd ? '导出书摘' : '导出备份',
         defaultPath: path.join(app.getPath('documents'), name),
-        filters: [{ name: 'JSON 备份', extensions: ['json'] }],
+        filters: isMd
+          ? [{ name: 'Markdown', extensions: ['md'] }]
+          : [{ name: 'JSON 备份', extensions: ['json'] }],
       }
       const w = aliveWin()
       const r = w ? await dialog.showSaveDialog(w, opts) : await dialog.showSaveDialog(opts)
       if (r.canceled || !r.filePath) return { ok: false, canceled: true }
       await fs.promises.writeFile(r.filePath, payload.content, 'utf8')
       return { ok: true, path: r.filePath }
+    } catch (err) {
+      return { ok: false, error: String((err as Error)?.message ?? err) }
+    }
+  })
+
+  /** 读取用户选择的文本文件（备份导入）；打包后 asar 只读，必须走真实路径 */
+  ipcMain.handle('moyu:open-text', async () => {
+    try {
+      const opts: Electron.OpenDialogOptions = {
+        title: '导入备份',
+        defaultPath: app.getPath('documents'),
+        properties: ['openFile'],
+        filters: [
+          { name: '墨鱼备份', extensions: ['json'] },
+          { name: '所有文件', extensions: ['*'] },
+        ],
+      }
+      const w = aliveWin()
+      const r = w ? await dialog.showOpenDialog(w, opts) : await dialog.showOpenDialog(opts)
+      if (r.canceled || !r.filePaths?.length) return { ok: false, canceled: true }
+      const p = r.filePaths[0]
+      const content = await fs.promises.readFile(p, 'utf8')
+      return { ok: true, path: p, content }
     } catch (err) {
       return { ok: false, error: String((err as Error)?.message ?? err) }
     }
@@ -707,6 +739,7 @@ async function runSearchTest(testPath: string, keyword: string): Promise<void> {
       preload: path.join(__dirname, '../preload/preload.js'),
       contextIsolation: true,
       sandbox: false,
+      backgroundThrottling: false,
     },
   })
   try {
@@ -822,6 +855,8 @@ async function runFixtures(dir: string): Promise<void> {
 
   type Row = { name: string; pass: boolean; detail: string }
   const rows: Row[] = []
+  // 相对目录会让 PDF 走协议时拿不到绝对路径（moyu-file 只接受绝对路径）
+  const base = path.resolve(dir)
   for (const t of cases) {
     let row: Row = { name: t.name, pass: false, detail: '未执行' }
     const win = new BrowserWindow({
@@ -832,10 +867,11 @@ async function runFixtures(dir: string): Promise<void> {
         preload: path.join(__dirname, '../preload/preload.js'),
         contextIsolation: true,
         sandbox: false,
+        backgroundThrottling: false,
       },
     })
     try {
-      const target = path.join(dir, t.rel)
+      const target = path.join(base, t.rel)
       if (!fs.existsSync(target)) throw new Error(`样本缺失：${t.rel}`)
       await win.loadFile(renderer, { search: `?testpath=${encodeURIComponent(target)}` })
       await sleep(4200)
@@ -929,6 +965,7 @@ async function runBookmarkTest(testPath: string): Promise<void> {
         preload: path.join(__dirname, '../preload/preload.js'),
         contextIsolation: true,
         sandbox: false,
+        backgroundThrottling: false,
       },
     })
   const out: string[] = []
@@ -1004,6 +1041,428 @@ async function runBookmarkTest(testPath: string): Promise<void> {
   app.exit(0)
 }
 
+// ---------------- 通用等待助手 ----------------
+/** 轮询渲染进程条件，直到返回真值或超时（自检里替代固定 sleep，避免机器慢时误判） */
+async function waitFor(
+  win: BrowserWindow,
+  expr: string,
+  timeoutMs = 30000,
+  stepMs = 250
+): Promise<unknown> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    try {
+      const v = await win.webContents.executeJavaScript(expr)
+      if (v) return v
+    } catch {
+      /* 页面尚未就绪时继续等 */
+    }
+    await new Promise((r) => setTimeout(r, stepMs))
+  }
+  return null
+}
+
+// ---------------- 高亮 / 笔记自检（MOYU_TEST_ANNOT=<testpath>） ----------------
+/**
+ * 端到端验证 B1：
+ * 1. 选中正文 → 浮出四色工具条（文本类在 .text-inner，EPUB 在 iframe 内）；
+ * 2. 点色 → 写入 IndexedDB（annotations 表）并即时渲染（CSS Custom Highlight API）；
+ * 3. 重开阅读窗口 → 高亮仍在（偏移/CFI 换算与渲染链路跨会话稳定）；
+ * 4. 点高亮 → 备注气泡 → 保存 → 面板可见备注文本。
+ */
+async function runAnnotTest(testPath: string): Promise<void> {
+  const renderer = path.join(__dirname, '../renderer/reader.html')
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+  const out: string[] = []
+  const logs: string[] = []
+  const ext = path.extname(testPath).slice(1).toLowerCase()
+  const bookId = `testbook-${ext}`
+  const makeWin = () =>
+    new BrowserWindow({
+      width: 1200,
+      height: 900,
+      frame: false,
+      show: true,
+      webPreferences: {
+        preload: path.join(__dirname, '../preload/preload.js'),
+        contextIsolation: true,
+        sandbox: false,
+        backgroundThrottling: false,
+      },
+    })
+  const watchLogs = (w: BrowserWindow) => {
+    w.webContents.on('console-message', (_e, level, message) => {
+      if (level >= 2) logs.push(String(message).slice(0, 200))
+    })
+  }
+  /** 读取注解数（IndexedDB） */
+  const countAnnotations = (w: BrowserWindow) =>
+    w.webContents.executeJavaScript(`(async () => {
+      const req = indexedDB.open('moyu-reader')
+      const db = await new Promise((res, rej) => { req.onsuccess = () => res(req.result); req.onerror = () => rej(req.error) })
+      const count = await new Promise((res) => {
+        try {
+          const tx = db.transaction('annotations', 'readonly')
+          const rq = tx.objectStore('annotations').count()
+          rq.onsuccess = () => res(rq.result)
+          rq.onerror = () => res(-1)
+        } catch (e) { res(-2) }
+      })
+      db.close()
+      return count
+    })()`)
+  /** 读取高亮状态：文本类在宿主文档，EPUB 在 iframe 文档 */
+  const readHighlights = (w: BrowserWindow) =>
+    w.webContents.executeJavaScript(`(() => {
+      const pick = (win) => {
+        const reg = win && win.CSS ? win.CSS.highlights : null
+        const hl = reg ? reg.get('moyu-hl-yellow') : null
+        if (!hl || !hl.size) return null
+        const r = [...hl][0].getBoundingClientRect()
+        return { size: hl.size, left: r.left, top: r.top, width: r.width, height: r.height }
+      }
+      let info = pick(window)
+      let inFrame = false
+      let frameRect = null
+      if (!info) {
+        const f = document.querySelector('.epub-host iframe')
+        if (f && f.contentDocument) {
+          info = pick(f.contentDocument.defaultView)
+          if (info) {
+            inFrame = true
+            const fr = f.getBoundingClientRect()
+            frameRect = { left: fr.left, top: fr.top }
+          }
+        }
+      }
+      if (!info) return JSON.stringify({ size: 0, inFrame: false })
+      const ox = inFrame && frameRect ? frameRect.left : 0
+      const oy = inFrame && frameRect ? frameRect.top : 0
+      return JSON.stringify({
+        size: info.size,
+        inFrame,
+        // 宿主坐标系（用于派发点击）
+        host: { x: Math.round(ox + info.left + Math.min(info.width, 40) / 2), y: Math.round(oy + info.top + info.height / 2) },
+        // iframe 内坐标（点击要派发给 iframe 文档）
+        local: { x: Math.round(info.left + Math.min(info.width, 40) / 2), y: Math.round(info.top + info.height / 2) },
+      })
+    })()`)
+
+  try {
+    const w1 = makeWin()
+    watchLogs(w1)
+    await w1.loadFile(renderer, { search: `?testpath=${encodeURIComponent(testPath)}` })
+    const ready1 = await waitFor(w1, `(() => {
+      const t = document.querySelector('.reader-title')?.textContent || ''
+      if (!t) return ''
+      if (document.querySelector('.text-inner section')) return 'text'
+      const f = document.querySelector('.epub-host iframe')
+      if (f && f.contentDocument && (f.contentDocument.body?.innerText || '').length > 10) return 'epub'
+      return ''
+    })()`, 30000)
+    out.push(`ready1: ${ready1 ?? 'TIMEOUT'}`)
+    await sleep(400)
+
+    // 选中一段文字（文本类：.text-inner；EPUB：iframe 正文）
+    const bar = await w1.webContents.executeJavaScript(`(async () => {
+      const inner = document.querySelector('.text-inner')
+      const frame = document.querySelector('.epub-host iframe')
+      const doc = inner ? document : frame && frame.contentDocument ? frame.contentDocument : null
+      const root = inner ? inner.querySelector('section') : doc && doc.body
+      if (!doc || !root) return JSON.stringify({ dots: 0, reason: 'no-content' })
+      const walker = doc.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+      const nodes = []
+      let n
+      while ((n = walker.nextNode())) nodes.push(n)
+      const usable = nodes.find((t) => (t.data || '').trim().length > 4)
+      if (!usable) return JSON.stringify({ dots: 0, reason: 'no-text' })
+      const r = doc.createRange()
+      r.setStart(usable, 0)
+      r.setEnd(usable, Math.min(30, usable.data.length))
+      const sel = doc.defaultView.getSelection()
+      sel.removeAllRanges()
+      sel.addRange(r)
+      if (inner) document.querySelector('.text-scroll').dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
+      else doc.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
+      await new Promise((r2) => setTimeout(r2, 500))
+      return JSON.stringify({
+        dots: document.querySelectorAll('.sel-bar .sel-dot').length,
+        text: (sel.toString() || '').slice(0, 16),
+        mode: inner ? 'text' : 'epub',
+      })
+    })()`)
+    out.push(`selection ${bar}`)
+
+    await w1.webContents.executeJavaScript(
+      `document.querySelector('.sel-dot[data-color="yellow"]')?.click()`
+    )
+    await sleep(1100)
+    const count1 = await countAnnotations(w1)
+    const hl1 = await readHighlights(w1)
+    out.push(`created count=${count1} hl=${hl1}`)
+    const c1 = JSON.parse(String(hl1)) as { size: number }
+
+    w1.destroy()
+    await sleep(700)
+
+    // 重开：验证高亮跨会话仍在
+    const w2 = makeWin()
+    watchLogs(w2)
+    await w2.loadFile(renderer, { search: `?bookId=${bookId}` })
+    await waitFor(w2, `document.querySelector('.reader-title')?.textContent || ''`, 25000)
+    await waitFor(w2, `(() => {
+      const f = document.querySelector('.epub-host iframe')
+      if (f && f.contentDocument) {
+        const reg = f.contentDocument.defaultView && f.contentDocument.defaultView.CSS
+        const hl = reg && reg.highlights ? reg.highlights.get('moyu-hl-yellow') : null
+        if (hl && hl.size) return 'epub-hl'
+      }
+      const reg = window.CSS && CSS.highlights
+      const hl = reg ? reg.get('moyu-hl-yellow') : null
+      return hl && hl.size ? 'hl' : ''
+    })()`, 20000)
+    await sleep(400)
+    const count2 = await countAnnotations(w2)
+    const hl2raw = await readHighlights(w2)
+    out.push(`persist count=${count2} hl=${hl2raw}`)
+    const hl2 = JSON.parse(String(hl2raw)) as {
+      size: number
+      inFrame: boolean
+      host: { x: number; y: number }
+      local: { x: number; y: number }
+    }
+
+    // 点高亮 → 备注气泡 → 保存 → 面板可见
+    const notePanel = await w2.webContents.executeJavaScript(`(async () => {
+      const hx = ${hl2.host?.x ?? -1}
+      const hy = ${hl2.host?.y ?? -1}
+      const lx = ${hl2.local?.x ?? -1}
+      const ly = ${hl2.local?.y ?? -1}
+      const inFrame = ${hl2.inFrame ? 'true' : 'false'}
+      if (hx < 0 || hy < 0) return 'no-rect'
+      if (inFrame) {
+        const f = document.querySelector('.epub-host iframe')
+        const doc = f && f.contentDocument
+        if (!doc) return 'no-frame'
+        doc.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX: lx, clientY: ly }))
+        doc.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, clientX: lx, clientY: ly }))
+        doc.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: lx, clientY: ly }))
+      } else {
+        const el = document.querySelector('.text-scroll')
+        el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX: hx, clientY: hy }))
+      }
+      await new Promise((r) => setTimeout(r, 450))
+      const pop = document.querySelector('.note-pop')
+      if (!pop) return 'no-pop'
+      const ta = pop.querySelector('textarea')
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set
+      setter.call(ta, '自动化验证备注：这一段值得回看')
+      ta.dispatchEvent(new Event('input', { bubbles: true }))
+      await new Promise((r) => setTimeout(r, 200))
+      const save = Array.from(pop.querySelectorAll('button')).find((b) => (b.textContent || '').includes('保存'))
+      save?.click()
+      await new Promise((r) => setTimeout(r, 800))
+      const open = Array.from(document.querySelectorAll('.rb')).find((b) => (b.textContent || '').includes('笔记'))
+      open?.click()
+      await new Promise((r) => setTimeout(r, 400))
+      const panel = document.querySelector('.anno-panel')
+      return panel ? panel.innerText.replace(/\s+/g, ' ').slice(0, 200) : 'no-panel'
+    })()`)
+    out.push(`note ${notePanel}`)
+
+    // 主窗口笔记页：聚合展示（同一 profile，验证跨窗口读取）
+    const main = createWindow()
+    mainWin = main
+    await main.loadFile(path.join(__dirname, '../renderer/index.html'), { search: '?tab=notes&theme=dark' })
+    await waitFor(main, `document.querySelector('.note-card') ? 'ok' : ''`, 15000)
+    const notesPage = await main.webContents.executeJavaScript(`(() => {
+      const page = document.querySelector('.notes-page')
+      if (!page) return 'no-page'
+      return page.innerText.replace(/\s+/g, ' ').slice(0, 160)
+    })()`)
+    out.push(`notes-page ${notesPage}`)
+    main.show()
+    await sleep(900) // 等首帧把列表画出来，避免截到「读取中…」
+    try {
+      const img = await main.webContents.capturePage()
+      const devShot = path.join(app.getAppPath(), 'screenshots')
+      const target = fs.existsSync(devShot) ? devShot : app.getPath('userData')
+      fs.writeFileSync(path.join(target, 'notes-page.png'), img.toPNG())
+    } catch {
+      /* ignore */
+    }
+
+    const okDots = String(bar).includes('"dots":4')
+    const okCreate = count1 === 1 && c1.size === 1
+    const okPersist = count2 === 1 && hl2.size === 1
+    const okNote = String(notePanel).includes('自动化验证备注')
+    const okNotesPage = String(notesPage).includes('自动化验证备注')
+    out.push(
+      `checks dots=${okDots} create=${okCreate} persist=${okPersist} note=${okNote} notesPage=${okNotesPage}`
+    )
+    out.push(
+      okDots && okCreate && okPersist && okNote && okNotesPage ? 'ANNOT_OK' : 'ANNOT_FAIL'
+    )
+    try {
+      const img = await w2.webContents.capturePage()
+      const devShot = path.join(app.getAppPath(), 'screenshots')
+      const target = fs.existsSync(devShot) ? devShot : app.getPath('userData')
+      fs.writeFileSync(path.join(target, 'reader-annotation.png'), img.toPNG())
+    } catch {
+      /* ignore */
+    }
+    w2.destroy()
+  } catch (e) {
+    out.push(`ERROR ${String(e)}`)
+  }
+  if (logs.length) out.push('logs: ' + logs.join(' | '))
+  console.log('ANNOT_TEST:')
+  for (const l of out) console.log('  ' + l)
+  writeTestResult('annot', out)
+  app.exit(0)
+}
+
+// ---------------- 备份导入自检（MOYU_TEST_BACKUP=1） ----------------
+/**
+ * 验证 B3（导入部分）：
+ * 1. 合法备份导入后，书只合并不重复，书签/笔记各 +1；
+ * 2. 同一份备份再导入一次完全幂等（去重生效）；
+ * 3. 进度不倒退（备份里的进度更高时才更新位置）；
+ * 4. 设置在导入后生效；
+ * 5. 非法 JSON / 非本应用 / 过高 schema 均被拒。
+ */
+async function runBackupTest(): Promise<void> {
+  const out: string[] = []
+  const win = createWindow()
+  mainWin = win
+  try {
+    await win.loadFile(path.join(__dirname, '../renderer/index.html'), {
+      search: '?testhooks=1&theme=dark',
+    })
+    await waitFor(win, 'window.__moyuBackup ? 1 : 0', 20000)
+    await new Promise((r) => setTimeout(r, 1500))
+
+    const raw = await win.webContents.executeJavaScript(`(async () => {
+      const B = window.__moyuBackup
+      const db = await new Promise((res, rej) => {
+        const q = indexedDB.open('moyu-reader')
+        q.onsuccess = () => res(q.result)
+        q.onerror = () => rej(q.error)
+      })
+      const getAll = (st) => new Promise((res) => {
+        try {
+          const tx = db.transaction(st, 'readonly')
+          const rq = tx.objectStore(st).getAll()
+          rq.onsuccess = () => res(rq.result)
+          rq.onerror = () => res([])
+        } catch (e) { res([]) }
+      })
+      const count = (st) => new Promise((res) => {
+        try {
+          const tx = db.transaction(st, 'readonly')
+          const rq = tx.objectStore(st).count()
+          rq.onsuccess = () => res(rq.result)
+          rq.onerror = () => res(-1)
+        } catch (e) { res(-1) }
+      })
+      const before = {
+        books: await count('books'),
+        bookmarks: await count('bookmarks'),
+        annotations: await count('annotations'),
+      }
+      const books = await getAll('books')
+      const target = books[0]
+      const now = Date.now()
+      const payload = {
+        app: 'moyu-reader',
+        schema: 2,
+        exportedAt: now,
+        dbVersion: 3,
+        books: books.map((b) => b.id === target.id
+          ? { ...b, progress: 0.5, lastReadAt: now + 1000, locator: { kind: 'offset', value: 1200, percent: 0.5, updatedAt: now } }
+          : b),
+        kv: [{ key: 'settings', value: { theme: 'light', material: 'solid', animMode: 'fade', wallpaperId: null, wallpaperDim: 0.4, wallpaperFit: 'cover', wallpaperZoom: 1, contentOpacity: 0.8, dockOpacity: 0.5, cardSize: 'md', bossKey: 'Alt+X', nativeAcrylic: false } }],
+        bookmarks: [{
+          id: 'bm-import-1', bookId: target.id,
+          locator: { kind: 'offset', value: 1200, percent: 0.5, updatedAt: now },
+          label: '导入书签', createdAt: now,
+        }],
+        annotations: [{
+          id: 'an-import-1', bookId: target.id, type: 'note', color: 'green',
+          locator: { kind: 'offset', value: 1200, percent: 0.5, updatedAt: now },
+          endOffset: 1240, chapterTitle: '导入章', excerpt: '导入的摘录',
+          note: '导入的备注', createdAt: now, updatedAt: now,
+        }],
+      }
+      const json = JSON.stringify(payload)
+      const r1 = await B.importBackup(json)
+      const mid = {
+        books: await count('books'),
+        bookmarks: await count('bookmarks'),
+        annotations: await count('annotations'),
+      }
+      const r2 = await B.importBackup(json)
+      const after = {
+        books: await count('books'),
+        bookmarks: await count('bookmarks'),
+        annotations: await count('annotations'),
+      }
+      const updated = (await getAll('books')).find((b) => b.id === target.id)
+      const kv = await getAll('kv')
+      const settings = (kv.find((r) => r.key === 'settings') || {}).value || {}
+      const bad1 = await B.importBackup('{not json')
+      const bad2 = await B.importBackup(JSON.stringify({ app: 'other', schema: 2, books: [] }))
+      const bad3 = await B.importBackup(JSON.stringify({ app: 'moyu-reader', schema: 99, books: [] }))
+      db.close()
+      return JSON.stringify({
+        before, mid, after,
+        stats1: r1.stats, stats2: r2.stats,
+        progress: updated ? updated.progress : -1,
+        theme: settings.theme || '',
+        bad: [bad1.ok, bad1.error, bad2.ok, bad2.error, bad3.ok, bad3.error],
+      })
+    })()`)
+
+    out.push(String(raw))
+    const r = JSON.parse(String(raw)) as {
+      before: { books: number; bookmarks: number; annotations: number }
+      mid: { books: number; bookmarks: number; annotations: number }
+      after: { books: number; bookmarks: number; annotations: number }
+      stats1: { addedBooks: number; mergedBooks: number; addedBookmarks: number; addedAnnotations: number }
+      stats2: { addedBookmarks: number; addedAnnotations: number }
+      progress: number
+      theme: string
+      bad: unknown[]
+    }
+    const okBooks = r.mid.books === r.before.books && r.mid.books > 0
+    const okBookmarks = r.mid.bookmarks === r.before.bookmarks + 1
+    const okAnnotations = r.mid.annotations === r.before.annotations + 1
+    const okIdempotent =
+      r.after.books === r.mid.books &&
+      r.after.bookmarks === r.mid.bookmarks &&
+      r.after.annotations === r.mid.annotations &&
+      r.stats2.addedBookmarks === 0 &&
+      r.stats2.addedAnnotations === 0
+    const okProgress = r.progress >= 0.5
+    const okSettings = r.theme === 'light'
+    const okBad = r.bad[0] === false && r.bad[2] === false && r.bad[4] === false
+    out.push(
+      `checks books=${okBooks} bookmarks=${okBookmarks} annotations=${okAnnotations} idempotent=${okIdempotent} progress=${okProgress} settings=${okSettings} rejectInvalid=${okBad}`
+    )
+    out.push(
+      okBooks && okBookmarks && okAnnotations && okIdempotent && okProgress && okSettings && okBad
+        ? 'BACKUP_OK'
+        : 'BACKUP_FAIL'
+    )
+  } catch (e) {
+    out.push(`ERROR ${String(e)}`)
+  }
+  console.log('BACKUP_TEST:')
+  for (const l of out) console.log('  ' + l)
+  writeTestResult('backup', out)
+  app.exit(0)
+}
+
 // ---------------- DB 迁移自检（MOYU_TEST_DB=1） ----------------
 /** 校验 IndexedDB 版本与各表条目数：确认 v1→v2 迁移不丢数据 */
 async function runDbCheck(): Promise<void> {
@@ -1032,13 +1491,26 @@ async function runDbCheck(): Promise<void> {
         covers: await count('covers'),
         kv: await count('kv'),
         bookmarks: await count('bookmarks'),
+        annotations: await count('annotations'),
       }
       db.close()
       return JSON.stringify(r)
     })()`)
     out.push(String(info))
-    const o = JSON.parse(String(info)) as { version: number; stores: string[]; books: number; bookmarks: number }
-    const okRun = o.version === 2 && o.stores.includes('bookmarks') && o.books > 0 && o.bookmarks >= 0
+    const o = JSON.parse(String(info)) as {
+      version: number
+      stores: string[]
+      books: number
+      bookmarks: number
+      annotations: number
+    }
+    const okRun =
+      o.version === 3 &&
+      o.stores.includes('bookmarks') &&
+      o.stores.includes('annotations') &&
+      o.books > 0 &&
+      o.bookmarks >= 0 &&
+      o.annotations >= 0
     out.push(okRun ? 'DB_CHECK_OK' : 'DB_CHECK_FAIL')
   } catch (e) {
     out.push(`ERROR ${String(e)}`)
@@ -1141,6 +1613,7 @@ async function runReaderTest(name: string, query: string): Promise<void> {
       preload: path.join(__dirname, '../preload/preload.js'),
       contextIsolation: true,
       sandbox: false,
+      backgroundThrottling: false,
     },
   })
   const logs: string[] = []
@@ -1323,6 +1796,99 @@ async function runReaderTest(name: string, query: string): Promise<void> {
   app.exit(0)
 }
 
+// ---------------- 大文件性能自检（MOYU_TEST_PERF="<name>|<testpath>"） ----------------
+/**
+ * 验证 A4：惰性 HTML + 分批挂载后的首开耗时、DOM 规模，以及「滚到底」时占位高度是否撑得住。
+ * 关键断言：
+ * - PERF_FIRST_PAINT：从 loadFile 到正文首帧（含解码/分章/首屏挂载）；
+ * - DOM_BUDGET：挂载章节数应远小于总章节数（否则分批没生效）；
+ * - BOTTOM_OK：滚到底后末章已挂载（占位估算没把可滚高度做小）。
+ */
+async function runPerfTest(name: string, testPath: string): Promise<void> {
+  const renderer = path.join(__dirname, '../renderer/reader.html')
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+  const out: string[] = []
+  const win = new BrowserWindow({
+    width: 1200,
+    height: 900,
+    frame: false,
+    show: false,
+    webPreferences: {
+      preload: path.join(__dirname, '../preload/preload.js'),
+      contextIsolation: true,
+      sandbox: false,
+      backgroundThrottling: false,
+    },
+  })
+  try {
+    const t0 = Date.now()
+    await win.loadFile(renderer, { search: `?testpath=${encodeURIComponent(testPath)}` })
+    let perf: Record<string, number> | null = null
+    for (let i = 0; i < 200; i++) {
+      perf = await win.webContents.executeJavaScript('window.__moyuPerf ?? null')
+      if (perf && perf.ready && perf['text-first-paint']) break
+      await sleep(50)
+    }
+    const readyMs = perf?.ready ?? -1
+    const paintMs = perf?.['text-first-paint'] ?? -1
+    const ioMs = perf?.parseMs ?? -1
+    out.push(`timing load=${Date.now() - t0}ms paint=${paintMs}ms ready=${readyMs}ms parse=${ioMs}ms`)
+    out.push(`perf ${JSON.stringify(perf ?? {})}`)
+
+    const dom = await win.webContents.executeJavaScript(`(() => {
+      const secs = Array.from(document.querySelectorAll('.text-inner section'))
+      const mounted = secs.filter((s) => s.dataset.ph !== '1')
+      const scroller = document.querySelector('.text-scroll')
+      return JSON.stringify({
+        sections: secs.length,
+        mounted: mounted.length,
+        nodes: document.querySelectorAll('*').length,
+        scrollHeight: scroller ? Math.round(scroller.scrollHeight) : -1,
+        firstText: (document.querySelector('.text-inner section p')?.textContent ?? '').slice(0, 24),
+      })
+    })()`)
+    const d = JSON.parse(dom) as {
+      sections: number
+      mounted: number
+      nodes: number
+      scrollHeight: number
+      firstText: string
+    }
+    out.push(`dom ${dom}`)
+    const mem = await win.webContents.executeJavaScript(
+      'performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : -1'
+    )
+    out.push(`heapMB ${mem}`)
+
+    // 滚到底：验证占位估算撑出的可滚高度够用，且末章会被挂载
+    const bottom = await win.webContents.executeJavaScript(`(async () => {
+      const el = document.querySelector('.text-scroll')
+      if (!el) return 'no-scroller'
+      el.scrollTop = el.scrollHeight
+      await new Promise((r) => setTimeout(r, 900))
+      const secs = Array.from(document.querySelectorAll('.text-inner section'))
+      const last = secs[secs.length - 1]
+      return JSON.stringify({
+        mounted: secs.filter((s) => s.dataset.ph !== '1').length,
+        lastMounted: last ? last.dataset.ph !== '1' : false,
+        percent: document.querySelector('.reader-sub')?.textContent?.trim() ?? '',
+      })
+    })()`)
+    out.push(`bottom ${bottom}`)
+    const b = JSON.parse(String(bottom)) as { mounted: number; lastMounted: boolean; percent: string }
+
+    out.push(paintMs >= 0 && paintMs < 1500 ? `PERF_OK(paint=${paintMs}ms)` : `PERF_SLOW(paint=${paintMs}ms)`)
+    out.push(d.mounted < d.sections ? `LAZY_OK(${d.mounted}/${d.sections})` : `LAZY_FAIL(全量挂载)`)
+    out.push(b.lastMounted ? 'BOTTOM_OK' : 'BOTTOM_FAIL(末章未挂载)')
+  } catch (e) {
+    out.push(`ERROR ${String(e)}`)
+  }
+  console.log(`PERF_TEST[${name}]:`)
+  for (const l of out) console.log('  ' + l)
+  writeTestResult(`perf-${name}`, out)
+  app.exit(0)
+}
+
 // ---------------- 位置记忆自检（MOYU_TEST_RESTORE="<name>|<testpath>"） ----------------
 async function runRestoreTest(name: string, testPath: string): Promise<void> {
   const renderer = path.join(__dirname, '../renderer/reader.html')
@@ -1336,6 +1902,7 @@ async function runRestoreTest(name: string, testPath: string): Promise<void> {
         preload: path.join(__dirname, '../preload/preload.js'),
         contextIsolation: true,
         sandbox: false,
+        backgroundThrottling: false,
       },
     })
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
@@ -1593,6 +2160,12 @@ if (!app.requestSingleInstanceLock() && !isShot) {
       void runRestoreTest(idx > 0 ? raw.slice(0, idx) : 'txt', idx > 0 ? raw.slice(idx + 1) : '')
       return
     }
+    if (process.env.MOYU_TEST_PERF) {
+      const raw = process.env.MOYU_TEST_PERF
+      const i = raw.indexOf('|')
+      void runPerfTest(i > 0 ? raw.slice(0, i) : 'big', i > 0 ? raw.slice(i + 1) : '')
+      return
+    }
     if (process.env.MOYU_TEST_SEARCH) {
       const raw = process.env.MOYU_TEST_SEARCH
       const i = raw.indexOf('|')
@@ -1605,6 +2178,14 @@ if (!app.requestSingleInstanceLock() && !isShot) {
     }
     if (process.env.MOYU_TEST_BOOKMARK) {
       void runBookmarkTest(process.env.MOYU_TEST_BOOKMARK)
+      return
+    }
+    if (process.env.MOYU_TEST_ANNOT) {
+      void runAnnotTest(process.env.MOYU_TEST_ANNOT)
+      return
+    }
+    if (process.env.MOYU_TEST_BACKUP === '1') {
+      void runBackupTest()
       return
     }
     if (process.env.MOYU_TEST_DB === '1') {

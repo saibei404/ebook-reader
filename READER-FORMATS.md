@@ -119,7 +119,7 @@ IndexedDB（books/covers/wallpapers/kv） ◀── 位置节流写回（1.2s）
 | K1 | ~~EPUB 跨会话恢复回落到第一章~~ | **已修复（v27）**：根因是滚动容器取了 `.epub-host`（overflow:hidden），实际应为 `.epub-container`；同时 display 后立即上报会覆盖目标位置。现改为快照式采集 + href 二次定位，`RESTORE_OK(cfi)` | 已关闭 |
 | K2 | ~~CBZ/PDF 自动化恢复用例未取到滚动量~~ | **已修复（v28）**：补 `scrollRatio` 并按比例恢复；CBZ 等图片撑开容器（定时器 4s + 高度门槛）。四格式 `RESTORE_OK` | 已关闭 |
 | K3 | EPUB 章内像素级滚动不进 locator | 同章内滚动位置不恢复 | 监听 iframe 内滚动（`hooks.content` 挂 scroll 监听）累计到 CFI | 中 |
-| K4 | 大 TXT（>3MB）一次性渲染全部章节 | 首次打开可能 1–2s 卡顿 | 引入章节虚拟化（IntersectionObserver + 占位高度） | 中 |
+| K4 | ~~大 TXT（>3MB）一次性渲染全部章节~~ | **已修复（v29）**：章节 HTML 惰性生成 + 分批挂载（估算高度占位 + 前缀偏移二分），3MB/508 章首开 290ms、只挂 21 章 | 已关闭 |
 | K5 | ~~无阅读器内搜索~~ | **已实现（v28）**：TXT/MD/FB2/DOCX 全篇搜索（章节索引 + 片段 + 跳转）；PDF/EPUB/CBZ 提示暂不支持 | 已关闭 |
 
 ---

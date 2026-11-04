@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Tray, Menu, globalShortcut, ipcMain, dialog, nativeImage, shell, protocol, nativeTheme, screen, desktopCapturer } from 'electron'
+import { app, BrowserWindow, Tray, Menu, globalShortcut, ipcMain, dialog, nativeImage, shell, protocol, nativeTheme, screen, desktopCapturer, crashReporter } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
 import { Readable } from 'node:stream'
@@ -21,6 +21,23 @@ const isShot = process.argv.includes('--shot')
  * 目的：让 PDF 这类可能上百 MB 的文件由引擎按 Range 分块流式读取，
  * 不必把整个文件经 IPC 结构化克隆复制进渲染进程内存（277MB 会放大成 1GB+ 峰值）。
  */
+/**
+ * 本地崩溃转储：渲染进程出现 STATUS_BREAKPOINT(0x80000003) 这类原生层崩溃时，
+ * app.log 只能记到退出码，拿不到调用栈。开启后 Crashpad 会把 minidump 落到
+ * app.getPath('crashDumps')，下次崩溃就能用 WinDbg / minidump-stackwalk 定位模块。
+ * uploadToServer:false —— 不联网、不上传，submitURL 只是 API 要求的占位。
+ */
+try {
+  crashReporter.start({
+    submitURL: 'https://localhost/moyu-crash-dump',
+    uploadToServer: false,
+    compress: true,
+  })
+} catch (err) {
+  // 某些受限环境起不来 Crashpad 也不能影响主程序启动
+  log('warn', 'main', `crashReporter unavailable: ${String(err)}`)
+}
+
 protocol.registerSchemesAsPrivileged([
   {
     scheme: 'moyu-file',
@@ -288,7 +305,7 @@ function openReaderWin(bookId: string, jump?: string): void {
         type: 'error',
         title: '阅读窗口连续崩溃',
         message: '阅读窗口已经连续两次异常退出',
-        detail: `${detail}\n\n日志里记录了崩溃码，可点「导出诊断」发给开发者。\n如果每次都崩，多半是显卡驱动/硬件加速的问题，可以先用兼容模式（关闭硬件加速）打开。`,
+        detail: `${detail}\n\n日志：%APPDATA%/moyu-reader/logs/app.log；转储：${app.getPath('crashDumps')}\\reports\n可点「导出诊断」发给开发者。\n如果每次都崩，多半是显卡驱动/硬件加速的问题，可以先用兼容模式（关闭硬件加速）打开。`,
         buttons: ['以兼容模式重启', '再试一次', '取消'],
         defaultId: 0,
         cancelId: 2,

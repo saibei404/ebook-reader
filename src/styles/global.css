@@ -104,7 +104,6 @@ code {
     0 8px 28px rgba(0, 0, 0, 0.36);
   --glass-blur: 24px;
   --glass-sat: 180%;
-  --chip-blur: 12px;
   --acrylic-noise: 0.03;
   --mica-mix: 40%;
   /* 阴影（iOS 极轻） */
@@ -166,7 +165,6 @@ code {
     0 8px 24px rgba(0, 0, 0, 0.08);
   --glass-blur: 20px;
   --glass-sat: 180%;
-  --chip-blur: 10px;
   --acrylic-noise: 0.03;
   --mica-mix: 40%;
   /* 阴影 */
@@ -1032,12 +1030,15 @@ code {
 
 .book-cover-wrap {
   position: relative;
-  border-radius: 12px;
+  /* 圆角与 .mat-* 材质层对齐；实色衬底 + 1px 边框，和顶栏/侧栏/详情面板同一套语言 */
+  border-radius: 14px;
   overflow: hidden;
+  box-sizing: border-box;
+  background: var(--surf-solid);
+  border: 1px solid var(--border-1);
   box-shadow: var(--card-shadow);
   transition: box-shadow 0.25s ease;
   aspect-ratio: 3 / 4;
-  background: var(--hover-bg);
 }
 
 .book-card:hover .book-cover-wrap {
@@ -1053,11 +1054,12 @@ code {
   width: 2px;
   z-index: 2;
   pointer-events: none;
+  /* 与新默认封面的书脊同源：细渐变，不用纯黑硬边 */
   background: linear-gradient(
     180deg,
-    rgba(255, 255, 255, 0.5),
-    rgba(255, 255, 255, 0.08) 35%,
-    rgba(0, 0, 0, 0.3)
+    rgba(255, 255, 255, 0.52),
+    rgba(255, 255, 255, 0.10) 42%,
+    rgba(10, 12, 20, 0.22)
   );
 }
 
@@ -1069,8 +1071,13 @@ code {
 }
 
 .book-cover-ph {
-  background: linear-gradient(135deg, var(--accent-2), var(--accent));
-  opacity: 0.4;
+  /* 与新版默认封面同源的柔和渐变，且跟随主题，不再是通透的 accent 斜渐变 */
+  background: linear-gradient(
+    155deg,
+    color-mix(in srgb, var(--accent-2) 62%, var(--surf-solid)),
+    color-mix(in srgb, var(--accent) 72%, var(--surf-solid))
+  );
+  opacity: 1;
 }
 
 .cover-glare {
@@ -1079,26 +1086,32 @@ code {
   width: 55%;
   height: 140%;
   pointer-events: none;
-  background: radial-gradient(ellipse at center, rgba(255, 255, 255, 0.9), transparent 65%);
-  filter: blur(6px);
+  /* 去掉 filter: blur(6px) 与 mix-blend-mode：整卡常驻的大面积模糊会额外生成合成层，
+     项目约定常驻元素不用 blur（见 .mat-* 注释）。纯渐变高光视觉等价、开销为零。 */
+  background: linear-gradient(
+    100deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.10) 42%,
+    rgba(255, 255, 255, 0.20) 52%,
+    rgba(255, 255, 255, 0.08) 62%,
+    transparent 100%
+  );
   transform: translateX(-50%) rotate(12deg);
-  mix-blend-mode: soft-light;
 }
 
 .format-badge {
   position: absolute;
   left: 10px;
   bottom: 10px;
-  padding: 2px 8px;
-  border-radius: 6px;
+  padding: 3px 9px;
+  border-radius: 8px;
   font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.06em;
-  color: #fff;
-  background: rgba(28, 28, 30, 0.6);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: var(--text-1);
+  background: color-mix(in srgb, var(--chip-surface) 90%, transparent);
+  border: 1px solid var(--border-1);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.10);
 }
 
 /* 右上角圆环进度（iPhone 电量环风格）：细环 + 深玻璃底盘，与左下角格式徽标错开 */
@@ -1110,10 +1123,9 @@ code {
   width: 26px;
   height: 26px;
   border-radius: 50%;
-  background: rgba(28, 28, 30, 0.55);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: color-mix(in srgb, var(--chip-surface) 90%, transparent);
+  border: 1px solid var(--border-1);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.10);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1127,13 +1139,14 @@ code {
 
 .ring-track {
   fill: none;
-  stroke: rgba(255, 255, 255, 0.32);
+  /* 环跟随主题文字色，浅色 chip 底上也能看清（原来固定白色会消失） */
+  stroke: color-mix(in srgb, var(--text-1) 26%, transparent);
   stroke-width: 2.6;
 }
 
 .ring-fill {
   fill: none;
-  stroke: #ffffff;
+  stroke: var(--text-1);
   stroke-width: 2.6;
   stroke-linecap: round;
   transition: stroke-dashoffset 0.35s ease;
@@ -1163,15 +1176,16 @@ code {
   height: 30px;
   display: grid;
   place-items: center;
-  border-radius: 8px;
-  color: #fff;
-  background: rgba(0, 0, 0, 0.55);
-  backdrop-filter: blur(8px);
+  border-radius: 9px;
+  color: var(--text-1);
+  background: color-mix(in srgb, var(--chip-surface) 92%, transparent);
+  border: 1px solid var(--border-1);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.10);
   transition: background 0.15s ease, transform 0.15s ease;
 }
 
 .card-act:hover {
-  background: rgba(0, 0, 0, 0.75);
+  background: var(--hover-bg);
   transform: scale(1.08);
 }
 
@@ -1184,11 +1198,11 @@ code {
   flex-direction: column;
   gap: 2px;
   padding: 8px 10px;
-  border-radius: 10px;
+  border-radius: 12px;
+  /* --chip-surface 本就是实色，blur 是多余的合成层 */
   background: var(--chip-surface);
-  backdrop-filter: blur(var(--chip-blur));
-  -webkit-backdrop-filter: blur(var(--chip-blur));
   border: 1px solid var(--border-1);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.10);
 }
 
 .book-title {

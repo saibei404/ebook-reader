@@ -334,3 +334,28 @@ fixtures 立刻报 `epub FAIL 颜色 1 色`。CSP 生效性用 `securitypolicyvi
 
 自检 `MOYU_TEST_DROP`：5 个样本（带封面 epub / 无封面 epub / pdf / cbz / txt）
 → `added=5, covers=3`，无封面的两本有书名封面，二次导入 `dup=5`，遮罩出现/消失正确 → `DROP_OK`。
+
+### v31-5 运行时升级（Electron 33 → 45）
+
+| 项 | 前 | 后 |
+|---|---|---|
+| Electron | 33.4.11（已 EOL，不再收安全补丁） | **45.2.2**（当前受支持版本） |
+| electron-builder | 25.1.8 | **26.18.0** |
+| `win.signAndEditExecutable` | `false`（exe 无版本资源） | **`true`** |
+| 产物名 | 硬编码 `0.1.0` | `${productName}-${version}` |
+
+**升级中踩的坑（都可复现）**
+
+1. **`npm i electron@45` 不会下载二进制**：只更新了包元数据，`node_modules/electron/dist/` 与 `path.txt` 都不存在，
+   表现为 `npx electron -v` 挂死无输出。需要手动 `node node_modules/electron/install.js`（带 `ELECTRON_MIRROR`）。
+2. **builder 26 移除了 `win.fileDescription`**：配置校验直接失败，报 `configuration.win should be one of these: null`
+   （schema 报错不点名具体字段，只能查 `app-builder-lib/scheme.json` 的 `WindowsConfiguration.properties` 比对）。
+3. **打包中断会留下 `win-unpacked.tmp`**：builder 用「改名 → 解压到新目录」的原子策略，
+   被超时杀掉后残留目录会让下次 rename 失败，后续所有构建都报错。必须手动清 `win-unpacked*`。
+4. **portable 打包耗时集中在 7z 压缩**：126MB 体积单线程压缩，首次还要下载 7zip / nsis 工具，
+   5 分钟内跑不完，需要放到后台执行。
+5. **无证书时 builder 明确跳过**：日志输出 `no code signing certificate configured, signing is skipped`
+   —— 说明 `signAndEditExecutable` 与「代码签名」是两件事：前者写 exe 资源（图标/版本/版权），后者是证书签名。
+
+**升级兼容性**：项目无原生模块（epubjs / pdfjs / mammoth / fflate / idb 全是纯 JS），
+无 ABI 重编译风险；Electron 32 起移除的 `File.path` 早前已改用 `webUtils.getPathForFile`，本次无新增适配。

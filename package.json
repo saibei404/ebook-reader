@@ -33,8 +33,8 @@
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
     "@vitest/coverage-v8": "^2.1.9",
-    "electron": "^33.0.0",
-    "electron-builder": "^25.1.8",
+    "electron": "^45.2.2",
+    "electron-builder": "^26.18.0",
     "electron-vite": "^2.3.0",
     "fake-indexeddb": "^6.2.7",
     "jsdom": "^25.0.1",
@@ -45,7 +45,7 @@
   "build": {
     "appId": "com.moyu.reader",
     "productName": "墨鱼阅读器",
-    "copyright": "Copyright © 2026 Moyu Reader",
+    "copyright": "Copyright © 2026 saibei404",
     "asar": true,
     "directories": {
       "output": "D:/moyu-builds"
@@ -61,10 +61,10 @@
         "portable"
       ],
       "icon": "resources/icon.ico",
-      "signAndEditExecutable": false
+      "signAndEditExecutable": true
     },
     "portable": {
-      "artifactName": "墨鱼阅读器-0.1.0-portable.exe"
+      "artifactName": "${productName}-${version}-portable.exe"
     }
   },
   "repository": {

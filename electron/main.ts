@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Tray, Menu, globalShortcut, ipcMain, dialog, nativeImage, shell, protocol, nativeTheme } from 'electron'
+import { app, BrowserWindow, Tray, Menu, globalShortcut, ipcMain, dialog, nativeImage, shell, protocol, nativeTheme, screen, desktopCapturer } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
 import { Readable } from 'node:stream'
@@ -2026,6 +2026,149 @@ async function runThemeTest(): Promise<void> {
   app.exit(0)
 }
 
+// ---------------- 顶栏贴顶诊断（MOYU_TEST_TOPBAR=1） ----------------
+/**
+ * 「关闭/最小化/最大化那一排不在窗口最顶部」的定向诊断。
+ *
+ * 之前的探针都是自己 new BrowserWindow，跟真实启动路径（createWindow：show:false +
+ * paintWhenInitiallyHidden + 托盘/菜单）不完全一样，所以没复现。这里直接用真实窗口，并同时看四层：
+ * 1. 窗口几何（bounds / contentBounds）：客户区是否被非客户区挤下来；
+ * 2. 菜单栏可见性（isMenuBarVisible）：Windows 的菜单栏正好是 20~26px 高的一条；
+ * 3. 渲染层视口（innerWidth/Height、outerWidth/Height、screenY）：视口是否比窗口矮；
+ * 4. 桌面级截屏逐行亮度：窗口最上面那些行到底是"应用内容"还是"窗口外的桌面"。
+ */
+async function runTopbarTest(): Promise<void> {
+  const out: string[] = []
+  const win = createWindow()
+  mainWin = win
+  try {
+    await win.loadFile(path.join(__dirname, '../renderer/index.html'), { search: '?theme=dark' })
+    await waitFor(win, `document.querySelectorAll('.book-card').length > 0 ? 'ok' : ''`, 25000)
+    await new Promise((r) => setTimeout(r, 800))
+
+    const b = win.getBounds()
+    const c = win.getContentBounds()
+    const menuBarVisible = win.isMenuBarVisible()
+    const appMenu = Menu.getApplicationMenu()
+    const menuItems = appMenu ? appMenu.items.length : 0
+    const menuLabels = appMenu ? appMenu.items.map((i) => i.label).join('/') : ''
+
+    const view = await win.webContents.executeJavaScript(`JSON.stringify({
+      inner: [window.innerWidth, window.innerHeight],
+      outer: [window.outerWidth, window.outerHeight],
+      screenY: window.screenY,
+      screenX: window.screenX,
+      dpr: window.devicePixelRatio,
+      topbarTop: Math.round(document.querySelector('.topbar').getBoundingClientRect().top),
+      wbtnTop: Math.round(document.querySelector('.wbtn').getBoundingClientRect().top),
+      wbtnBottom: Math.round(document.querySelector('.wbtn').getBoundingClientRect().bottom),
+    })`)
+
+    const states: { tag: string; gapTop: number; topbarTop: number; wbtnTop: number }[] = []
+    out.push(`normal bounds ${JSON.stringify(b)} content ${JSON.stringify(c)} gapTop=${c.y - b.y}`)
+
+    // 最大化 / 还原：用户日常就是这个状态，且 useContentSize 在最大化时会参与计算
+    const measure = async (tag: string) => {
+      const bb = win.getBounds()
+      const cc = win.getContentBounds()
+      const vv = await win.webContents.executeJavaScript(
+        `[window.innerWidth, window.innerHeight, window.screenY,
+          Math.round(document.querySelector('.topbar').getBoundingClientRect().top),
+          Math.round(document.querySelector('.wbtn').getBoundingClientRect().top),
+          Math.round(document.querySelector('.topbar-actions').getBoundingClientRect().right)].join(',')`
+      )
+      const [iw, ih, sy, tbTop, wbTop, actRight] = String(vv).split(',').map(Number)
+      // 按钮组加宽后要确认窄窗口下不溢出（右缘不能超出视口）
+      if (actRight > iw + 1) out.push(`WARN actions-overflow ${actRight} > ${iw}`)
+      states.push({ tag, gapTop: cc.y - bb.y, topbarTop: tbTop, wbtnTop: wbTop })
+      out.push(
+        `${tag} bounds=${bb.x},${bb.y},${bb.width},${bb.height} content=${cc.x},${cc.y},${cc.width},${cc.height} gapTop=${cc.y - bb.y} inner=${iw}x${ih} screenY=${sy} topbarTop=${tbTop} wbtnTop=${wbTop}`
+      )
+    }
+    win.maximize()
+    await new Promise((r) => setTimeout(r, 1200))
+    await measure('maximized')
+    win.unmaximize()
+    await new Promise((r) => setTimeout(r, 1200))
+    await measure('restored')
+    // 手动改尺寸：模拟用户拖边框
+    win.setBounds({ x: 120, y: 80, width: 1100, height: 760 })
+    await new Promise((r) => setTimeout(r, 900))
+    await measure('resized')
+    // 最小窗口宽度下也量一次：按钮组变宽后最容易在这里挤爆
+    win.setBounds({ x: 120, y: 80, width: 960, height: 640 })
+    await new Promise((r) => setTimeout(r, 900))
+    await measure('min-width')
+    out.push(`menuBarVisible=${menuBarVisible} menuItems=${menuItems} labels=[${menuLabels}]`)
+    out.push(`view ${view}`)
+
+    // 桌面级截屏 → 裁到窗口矩形 → 逐行平均亮度（含 alpha 前的 RGB）
+    const disp = screen.getPrimaryDisplay()
+    const scale = disp.scaleFactor
+    const sources = await desktopCapturer.getSources({
+      types: ['screen'],
+      thumbnailSize: {
+        width: Math.round(disp.size.width * scale),
+        height: Math.round(disp.size.height * scale),
+      },
+    })
+    const full = sources[0].thumbnail
+    const crop = full.crop({
+      x: Math.round(b.x * scale),
+      y: Math.round(b.y * scale),
+      width: Math.min(Math.round(b.width * scale), full.getSize().width),
+      height: Math.min(Math.round(b.height * scale), full.getSize().height),
+    })
+    const shotDir = fs.existsSync(path.join(app.getAppPath(), 'screenshots'))
+      ? path.join(app.getAppPath(), 'screenshots')
+      : app.getPath('userData')
+    fs.writeFileSync(path.join(shotDir, 'topbar-desktop.png'), crop.toPNG())
+    const contentShot = await win.webContents.capturePage()
+    fs.writeFileSync(path.join(shotDir, 'topbar-content.png'), contentShot.toPNG())
+
+    const bmp = crop.toBitmap()
+    const w = crop.getSize().width
+    const rowAvg = (y: number) => {
+      let s = 0
+      let n = 0
+      for (let x = Math.round(w * 0.7); x < w - 10; x += 4) {
+        const o = (y * w + x) * 4
+        s += (bmp[o] + bmp[o + 1] + bmp[o + 2]) / 3
+        n++
+      }
+      return Math.round(s / Math.max(1, n))
+    }
+    const rows: string[] = []
+    for (let y = 0; y < 44; y += 2) rows.push(`${y}:${rowAvg(y)}`)
+    out.push(`deskRows ${rows.join(' ')}`)
+
+    // 判定：最上面 24px 与顶栏中段亮度差 > 40 就认为存在"另一层"（桌面或菜单栏）
+    const topAvg = Math.round((rowAvg(2) + rowAvg(6) + rowAvg(10)) / 3)
+    const barAvg = Math.round((rowAvg(30) + rowAvg(40) + rowAvg(50)) / 3)
+    out.push(`topAvg=${topAvg} barAvg=${barAvg} delta=${Math.abs(topAvg - barAvg)}`)
+    // 判据：三种窗口状态下客户区都没有被挤下来，顶栏与窗口按钮都从 y=0 开始，且没有菜单栏占位
+    // 最大化时 Windows 会把窗口外扩 7px（bounds.y=-7）以吃掉不可见的缩放边框，
+    // 这属于系统行为：真正要看的是「客户区顶部 = 屏幕 0」和「顶栏/按钮从 0 开始」。
+    const okStates =
+      states.length >= 3 &&
+      states.every(
+        (x) =>
+          x.topbarTop === 0 &&
+          x.wbtnTop === 0 &&
+          (x.tag === 'maximized' ? Math.abs(x.gapTop) <= 8 : x.gapTop === 0)
+      )
+    const okMenu = !menuBarVisible && menuItems === 0
+    out.push(`checks states=${okStates} menu=${okMenu}`)
+    out.push(okStates && okMenu ? 'TOPBAR_OK' : 'TOPBAR_FAIL')
+  } catch (e) {
+    out.push(`ERROR ${String(e)}`)
+  }
+  console.log('TOPBAR_TEST:')
+  for (const l of out) console.log('  ' + l)
+  writeTestResult('topbar', out)
+  app.exit(0)
+}
+
 // ---------------- 样式层级自检（MOYU_TEST_STYLE=1） ----------------
 /**
  * 固化「表面分层」规则，防止以后再往批量选择器里加类时静默回归：
@@ -3544,6 +3687,10 @@ if (!app.requestSingleInstanceLock() && !isShot) {
   app.quit()
 } else {
   app.whenReady().then(() => {
+    // 无边框窗口本来用不到菜单栏，但 Electron 默认会装一套（File/Edit/View/Window）。
+    // 在个别 Windows 环境里这套菜单会以一条 20~26px 的横条画在客户区顶部，
+    // 表现为「关闭/最小化/最大化那一排不在窗口最顶部」——直接摘掉，顺带省掉用不到的快捷键。
+    Menu.setApplicationMenu(null)
     registerBookProtocol()
     registerIPC()
     if (isShot) {
@@ -3583,6 +3730,10 @@ if (!app.requestSingleInstanceLock() && !isShot) {
     }
     if (process.env.MOYU_TEST_ANNOT) {
       void runAnnotTest(process.env.MOYU_TEST_ANNOT)
+      return
+    }
+    if (process.env.MOYU_TEST_TOPBAR === '1') {
+      void runTopbarTest()
       return
     }
     if (process.env.MOYU_TEST_THEME === '1') {

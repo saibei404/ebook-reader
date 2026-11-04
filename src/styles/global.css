@@ -548,6 +548,8 @@ code {
   display: flex;
   align-items: center;
   gap: 8px;
+  /* 撑满顶栏高度：窗口按钮组要靠它 stretch 到 y=0，否则只能撑到按钮自身高度 */
+  align-self: stretch;
   -webkit-app-region: no-drag;
 }
 
@@ -607,20 +609,32 @@ code {
   padding: 7px 9px;
 }
 
+/*
+ * 窗口按钮组：贴住窗口右上角（与 Windows 原生标题栏一致）。
+ *
+ * 原来按钮是 34×34 带 9px 圆角的独立小方块，垂直居中在 52px 顶栏里 ——
+ * 上方留 9px、右侧留 8px，看起来"那一排没到窗口最顶部"。
+ * 现在改为撑满顶栏高度（y: 0 → 52）、右侧抵到窗口边缘：
+ * 悬停高亮块直接贴边，视觉上与窗口顶边连成一体。
+ */
 .win-controls {
   display: flex;
-  gap: 2px;
-  margin-left: 6px;
+  gap: 0;
+  margin-left: 8px;
+  /* 顶栏右内边距是 8px，抵消掉，让关闭键贴窗口右缘 */
+  margin-right: -8px;
+  align-self: stretch;
+  height: auto;
   position: relative;
   z-index: 70;
 }
 
 .wbtn {
-  width: 34px;
-  height: 34px;
+  width: 46px;
+  height: 100%;
   display: grid;
   place-items: center;
-  border-radius: 9px;
+  border-radius: 0;
   color: var(--text-2);
   transition: background 0.15s ease, color 0.15s ease;
 }
@@ -633,6 +647,11 @@ code {
 .wbtn.close:hover {
   background: #e81123;
   color: #fff;
+}
+
+/* 右下角与窗口同圆角：只有关闭键需要，其它按钮保持直角 */
+.wbtn.close {
+  border-top-right-radius: var(--radius-window);
 }
 
 /* ========== 壁纸弹层 ========== */

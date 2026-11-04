@@ -2904,7 +2904,19 @@ async function runReaderTest(name: string, query: string): Promise<void> {
             right: Math.round(window.innerWidth - r.right),
             bottomGap: Math.round(window.innerHeight - r.bottom),
             overflowX: r.left < 0 || r.right > window.innerWidth + 1,
-            fields,
+            fields: fields.map((f, i) => {
+              const el = box.querySelectorAll('.numfield')[i]
+              const inp = el ? el.querySelector('input') : null
+              const cs = el ? getComputedStyle(el) : null
+              const ics = inp ? getComputedStyle(inp) : null
+              return {
+                ...f,
+                bg: cs ? cs.backgroundColor : '',
+                inputBg: ics ? ics.backgroundColor : '',
+                inputColor: ics ? ics.color : '',
+                borderColor: cs ? cs.borderTopColor : '',
+              }
+            }),
             labels,
             segs,
             panelBg: getComputedStyle(box).backgroundColor,

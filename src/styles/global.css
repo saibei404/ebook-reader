@@ -1426,9 +1426,13 @@ code {
   margin-bottom: 4px;
 }
 
+/* 说明文字：从 text-3(42%) 提到 text-2(62%)。
+ * 设置页大面积是说明文案，42% 在深色卡片上只有约 4:1，长时间看偏费劲；
+ * 次要信息靠字号与行高区分，不必再压暗。 */
 .set-desc {
   font-size: 12.5px;
-  color: var(--text-3);
+  line-height: 1.68;
+  color: var(--text-2);
   margin: 4px 0 12px;
 }
 

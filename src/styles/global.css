@@ -74,6 +74,11 @@ code {
   /* 设置页亚克力卡片：半透明 + 磨砂，轻微透出壁纸 */
   --acrylic-card: rgba(28, 28, 30, 0.55);
   --acrylic-card-border: rgba(255, 255, 255, 0.09);
+  /* 卡片面 / 内嵌面：与 Dock 同一族（同样的半透明度），只是明度略提，
+     避免整块卡片在黑壁纸上塌成"黑色底纹"；输入框、滑轨等内嵌元素用 --surface-inset */
+  --surface-card: rgba(36, 37, 42, 0.6);
+  --surface-inset: rgba(255, 255, 255, 0.06);
+  --surface-inset-line: rgba(255, 255, 255, 0.1);
   /* 文字 / 图标（label 三级） */
   --text-1: #ffffff;
   --text-2: rgba(235, 235, 245, 0.62);
@@ -126,6 +131,9 @@ code {
   /* 设置页亚克力卡片：半透明 + 磨砂，轻微透出壁纸 */
   --acrylic-card: rgba(255, 255, 255, 0.62);
   --acrylic-card-border: rgba(60, 60, 67, 0.1);
+  --surface-card: rgba(255, 255, 255, 0.7);
+  --surface-inset: rgba(255, 255, 255, 0.55);
+  --surface-inset-line: rgba(60, 60, 67, 0.12);
   /* 文字 / 图标 */
   --text-1: #000000;
   --text-2: rgba(60, 60, 67, 0.62);
@@ -655,9 +663,12 @@ code {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--text-3);
+  /* 区块小标题：与设置页的数值标签统一（12.5px / 600 / text-2），
+     原来 12px + text-3 在深色底上偏小偏灰，和下面控件不成体系 */
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--text-2);
 }
 
 .wp-empty {
@@ -698,6 +709,8 @@ code {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
 }
 
 .wp-item-del {
@@ -933,10 +946,10 @@ code {
 }
 
 .wp-label-sub {
-  margin-top: 5px;
-  font-size: 11px;
+  margin-top: 6px;
+  font-size: 11.5px;
   color: var(--text-3);
-  line-height: 1.5;
+  line-height: 1.6;
 }
 
 .empty-state {
@@ -1768,8 +1781,9 @@ code {
   width: 100%;
   padding: 9px 12px;
   border-radius: 10px;
-  background: var(--hover-bg);
-  border: 1px solid var(--border-1);
+  /* 内嵌面：与卡片同族但更淡，读起来是"凹槽"而不是"黑块" */
+  background: var(--surface-inset);
+  border: 1px solid var(--surface-inset-line);
   outline: none;
   font-size: 13px;
   color: var(--text-1);
@@ -2005,7 +2019,7 @@ code {
 /* 第 1 层：区块卡（承载一组内容） */
 .set-block,
 .webdav-list {
-  background: var(--acrylic-card);
+  background: var(--surface-card);
   backdrop-filter: blur(calc(var(--glass-blur) * 0.8)) saturate(var(--glass-sat));
   -webkit-backdrop-filter: blur(calc(var(--glass-blur) * 0.8)) saturate(var(--glass-sat));
   border: 1px solid var(--acrylic-card-border);
@@ -2688,4 +2702,30 @@ code {
 /* 懒加载页面的占位：保持内容区高度，避免切页时布局跳一下 */
 .page-suspense {
   min-height: 420px;
+}
+
+/* 内置壁纸标签 */
+.wp-badge {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 5px;
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: var(--text-2);
+  background: var(--surface-inset);
+  border: 1px solid var(--surface-inset-line);
+}
+
+/* 弹层里的数值行：标签独占一行，控件占满宽度，避免窄弹层里挤成一条 */
+.wp-panel .num-label {
+  flex: 0 0 62px;
+  font-size: 12.5px;
+}
+
+.wp-panel .num-field-row {
+  margin: 4px 0 0;
+}
+
+.wp-panel .num-hint {
+  margin-left: 0;
 }

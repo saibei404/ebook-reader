@@ -194,8 +194,31 @@ body {
   font-size: 1.12em;
 }
 
+/*
+ * 正文段落（TXT / FB2 纯文本源）。
+ * 参照主流阅读器的中文正文规范：
+ * - 首行缩进 2em（不用空格凑，改字号时缩进自动跟着变）；
+ * - 段间距 0.85em，比行距略大但不夸张，段落边界清楚又不散；
+ * - 两端对齐 + inter-ideograph：中英混排时右边缘不会参差；
+ * - 字距 +0.01em：长段密集阅读时更透气（再大就显松散）。
+ */
 .text-inner p {
-  margin: 0 0 0.9em;
+  margin: 0 0 0.85em;
+  text-indent: 2em;
+  text-align: justify;
+  text-justify: inter-ideograph;
+  letter-spacing: 0.01em;
+}
+
+/* 章节标题：与正文拉开呼吸位，首章标题不需要上方留白 */
+.text-inner h2 {
+  margin-top: 2em;
+  margin-bottom: 1em;
+  letter-spacing: 0.02em;
+}
+
+.text-inner > h2:first-child {
+  margin-top: 0;
 }
 
 /* HTML 源（MD / DOCX / FB2）：块级元素之间的换行不应变成可见空行 */
@@ -203,8 +226,13 @@ body {
   white-space: normal;
 }
 
-.text-inner--html p {
+/* HTML 源自带结构（列表/表格/引用），不要再叠加中文正文的首行缩进与两端对齐 */
+.text-inner--html p,
+.text-inner--html li,
+.text-inner--html blockquote p {
   text-indent: 0;
+  text-align: left;
+  letter-spacing: 0;
 }
 
 .text-inner h4 {
@@ -431,20 +459,35 @@ body {
   top: 58px;
   right: 14px;
   z-index: 25;
-  width: 264px;
-  padding: 14px;
-  border-radius: 12px;
+  width: 268px;
+  padding: 14px 14px 12px;
+  border-radius: 14px;
   background: var(--r-glass);
   border: 1px solid var(--r-line);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.16);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.18);
+  /* 刻意不加 backdrop-filter：本项目的"常驻大面积元素不用 blur"是 GPU 崩溃后的约定，
+     面板虽然临时，但阅读窗口里 blur 一次就要合成整屏，得不偿失 */
+}
+
+.rs-section + .rs-section {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--r-line);
+}
+
+.rs-section-title {
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  color: var(--r-sub);
+  margin-bottom: 8px;
 }
 
 .rs-row {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 10px;
-  margin-bottom: 12px;
-  font-size: 12.5px;
+  margin-bottom: 8px;
 }
 
 .rs-row:last-child {
@@ -452,44 +495,69 @@ body {
 }
 
 .rs-label {
-  width: 54px;
-  flex-shrink: 0;
+  font-size: 12.5px;
+  color: var(--r-fg);
+  opacity: 0.82;
+}
+
+/* 数值步进器：沿用主界面的 .numfield 结构，这里换成阅读器的主题变量 */
+.reader-settings .numfield {
+  background: color-mix(in srgb, var(--r-fg) 6%, transparent);
+  border-color: var(--r-line);
+}
+
+.reader-settings .numfield:focus-within {
+  border-color: color-mix(in srgb, var(--r-accent) 65%, transparent);
+}
+
+.reader-settings .num-input {
+  color: var(--r-fg);
+  font-size: 12.5px;
+}
+
+.reader-settings .num-btn {
   color: var(--r-sub);
 }
 
-.rs-row input[type='range'] {
-  flex: 1;
-  accent-color: var(--r-accent);
+.reader-settings .num-btn:hover {
+  background: color-mix(in srgb, var(--r-fg) 10%, transparent);
+  color: var(--r-fg);
 }
 
-.rs-val {
-  width: 40px;
-  text-align: right;
-  font-variant-numeric: tabular-nums;
+.reader-settings .num-unit {
   color: var(--r-sub);
 }
 
+/* 分段控件：与主界面的 .seg 同一套语言（凹槽 + 抬起的高亮块） */
 .rs-seg {
   display: flex;
-  gap: 3px;
-  flex: 1;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--r-fg) 6%, transparent);
 }
 
 .rs-seg button {
   flex: 1;
-  height: 26px;
-  border: 1px solid var(--r-line);
-  border-radius: 6px;
+  height: 28px;
+  border: none;
+  border-radius: 7px;
   background: transparent;
-  color: inherit;
-  font-size: 11.5px;
+  color: var(--r-sub);
+  font-size: 12px;
   cursor: pointer;
+  transition: background 0.16s ease, color 0.16s ease;
+}
+
+.rs-seg button:hover {
+  color: var(--r-fg);
 }
 
 .rs-seg button.active {
-  background: color-mix(in srgb, var(--r-accent) 16%, transparent);
-  border-color: color-mix(in srgb, var(--r-accent) 50%, transparent);
-  color: var(--r-accent);
+  background: color-mix(in srgb, var(--r-accent) 20%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--r-accent) 45%, transparent);
+  color: var(--r-fg);
+  font-weight: 500;
 }
 
 /* ---------- 状态页 ---------- */

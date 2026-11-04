@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'motion/react'
 import { useStore } from '@/store/useStore'
 import { nativeApi } from '@/lib/native'
+import { NumberField } from './NumberFields'
 import {
   IconPlus,
   IconImage,
@@ -110,19 +111,23 @@ function WallpaperPopover() {
         >
       <div className="wp-section">
         <div className="wp-label">我的壁纸</div>
-            {wallpapers.length === 0 && <div className="wp-empty">还没有导入壁纸</div>}
             {wallpapers.map((w) => (
               <div key={w.id} className={`wp-item${settings.wallpaperId === w.id ? ' active' : ''}`}>
                 <button
                   className="wp-item-main"
                   onClick={() => void setSettings({ wallpaperId: w.id })}
+                  title={w.builtin ? '系统默认壁纸' : w.name}
                 >
                   <span className="wp-item-name">{w.name}</span>
+                  {/* 内置壁纸：标注来源、不给删除入口（删了也还在，容易让人误解） */}
+                  {w.builtin && <span className="wp-badge">系统</span>}
                   {settings.wallpaperId === w.id && <span className="wp-item-check" />}
                 </button>
-                <button className="wp-item-del" onClick={() => void removeWallpaper(w.id)} title="删除">
-                  <span className="wp-item-x" />
-                </button>
+                {!w.builtin && (
+                  <button className="wp-item-del" onClick={() => void removeWallpaper(w.id)} title="删除">
+                    <span className="wp-item-x" />
+                  </button>
+                )}
               </div>
             ))}
           </div>
@@ -159,12 +164,22 @@ function WallpaperPopover() {
                 min={20}
                 max={90}
                 value={Math.round(settings.contentOpacity * 100)}
+                aria-label="全局透明度"
                 onChange={(e) => {
                   const v = Number(e.target.value) / 100
                   void setSettings({ contentOpacity: v, dockOpacity: v })
                 }}
               />
-              <span className="wp-opacity-val">{Math.round(settings.contentOpacity * 100)}%</span>
+              {/* 数字框可直接输入：滑块只能拖个大概，想精确到 55% 得有输入口 */}
+              <NumberField
+                value={Math.round(settings.contentOpacity * 100)}
+                min={20}
+                max={90}
+                step={1}
+                unit="%"
+                ariaLabel="全局透明度百分比"
+                onChange={(v) => void setSettings({ contentOpacity: v / 100, dockOpacity: v / 100 })}
+              />
             </div>
             <div className="wp-label-sub">统一调节书架与 Dock 栏底纹透明度；分别微调请在「我的 → 壁纸」。</div>
           </div>

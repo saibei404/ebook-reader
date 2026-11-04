@@ -354,6 +354,9 @@ function createWindow(opts?: { forceOpaque?: boolean; initialUrl?: string }): Br
   // forceOpaque：兜底模式，避免 transparent + backgroundMaterial 在个别环境下创建失败导致无窗口可用
   const useNative = !opts?.forceOpaque && process.platform === 'win32' && !!s.nativeAcrylic && s.material === 'acrylic'
   const win = new BrowserWindow({
+    // useContentSize：宽高按"客户区"算。不加这一项时，个别显示缩放组合下
+    // Windows 会保留一圈不可见的边框，客户区比视口小，顶部/边缘就可能露出一条底色。
+    useContentSize: true,
     width: 1280,
     height: 820,
     minWidth: 960,
@@ -1913,6 +1916,116 @@ async function runCrashTest(): Promise<void> {
   app.exit(0)
 }
 
+// ---------------- 主题同步自检（MOYU_TEST_THEME=1） ----------------
+/**
+ * 验证「阅读器 ⇄ 主界面」主题联动：
+ * 1. 阅读器选「夜间」→ 主界面设置写库变 dark；选「纸白」→ light；
+ * 2. 主界面切深浅色 → 阅读器在「跟随」模式下同频；
+ * 3. 阅读器明确选了纸白/米黄/夜间时，主界面的切换**不能**抢走它的配色。
+ */
+async function runThemeTest(): Promise<void> {
+  const out: string[] = []
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+  const testPath = 'D:/moyu-builds/fixtures/dense.txt'
+  const readerHtml = path.join(__dirname, '../renderer/reader.html')
+  const indexHtml = path.join(__dirname, '../renderer/index.html')
+
+  const rootBg = (w: BrowserWindow) =>
+    w.webContents.executeJavaScript(`getComputedStyle(document.querySelector('.reader-root')).backgroundColor`)
+  const kvTheme = (w: BrowserWindow) =>
+    w.webContents.executeJavaScript(`(async () => {
+      const db = await new Promise((res, rej) => {
+        const q = indexedDB.open('moyu-reader')
+        q.onsuccess = () => res(q.result)
+        q.onerror = () => rej(q.error)
+      })
+      const rec = await new Promise((res) => {
+        const tx = db.transaction('kv', 'readonly')
+        const rq = tx.objectStore('kv').get('settings')
+        rq.onsuccess = () => res(rq.result)
+        rq.onerror = () => res(null)
+      })
+      db.close()
+      return (rec && rec.value && rec.value.theme) || ''
+    })()`)
+  const clickSeg = (w: BrowserWindow, label: string) =>
+    w.webContents.executeJavaScript(
+      `(() => {
+        const b = Array.from(document.querySelectorAll('.rs-seg button')).find((x) => (x.textContent || '').trim() === '${label}')
+        b?.click()
+        return !!b
+      })()`
+    )
+
+  try {
+    const w1 = new BrowserWindow({
+      width: 1100, height: 820, frame: false, show: true,
+      webPreferences: {
+        preload: path.join(__dirname, '../preload/preload.js'),
+        contextIsolation: true, sandbox: false, backgroundThrottling: false,
+      },
+    })
+    await w1.loadFile(readerHtml, { search: `?testpath=${encodeURIComponent(testPath)}&panel=settings` })
+    await waitFor(w1, `document.querySelector('.rs-seg button') ? 1 : 0`, 30000)
+    await sleep(600)
+
+    // 1) 阅读器 → 主界面
+    await clickSeg(w1, '夜间')
+    await sleep(700)
+    const nightBg = await rootBg(w1)
+    const nightKV = await kvTheme(w1)
+    await clickSeg(w1, '纸白')
+    await sleep(700)
+    const paperBg = await rootBg(w1)
+    const paperKV = await kvTheme(w1)
+    out.push(`reader->app 夜间 bg=${nightBg} kv=${nightKV} | 纸白 bg=${paperBg} kv=${paperKV}`)
+
+    // 2) 主界面 → 阅读器（先切到「跟随」）
+    await clickSeg(w1, '跟随')
+    await sleep(500)
+    const main = createWindow()
+    mainWin = main
+    await main.loadFile(indexHtml, { search: '?theme=light' })
+    await waitFor(main, `document.querySelector('.book-card') ? 1 : 0`, 25000)
+    const send = (theme: string) =>
+      main.webContents.executeJavaScript(
+        `(() => { const ch = new BroadcastChannel('moyu-reader-sync'); ch.postMessage({ type: 'theme', theme: '${theme}' }); ch.close(); return 'sent' })()`
+      )
+    await send('light')
+    await sleep(600)
+    const followLight = await rootBg(w1)
+    await send('dark')
+    await sleep(600)
+    const followDark = await rootBg(w1)
+    out.push(`app->reader 跟随 light=${followLight} dark=${followDark}`)
+
+    // 3) 显式主题不被抢：选夜间后再广播浅色，应保持深色
+    await clickSeg(w1, '夜间')
+    await sleep(600)
+    await send('light')
+    await sleep(600)
+    const guardBg = await rootBg(w1)
+    out.push(`explicit 夜间 + 广播 light = ${guardBg}`)
+
+    const isDark = (c: string) => /rgb\(17, 17, 19\)/.test(c)
+    const isLight = (c: string) => !isDark(c)
+    const okReaderToApp = isDark(nightBg) && nightKV === 'dark' && isLight(paperBg) && paperKV === 'light'
+    const okAppToReader = isLight(followLight) && isDark(followDark)
+    const okGuard = isDark(guardBg)
+    out.push(
+      `checks readerToApp=${okReaderToApp} appToReader=${okAppToReader} guard=${okGuard}`
+    )
+    out.push(okReaderToApp && okAppToReader && okGuard ? 'THEME_OK' : 'THEME_FAIL')
+    for (const w of [w1, main]) if (!w.isDestroyed()) w.destroy()
+  } catch (e) {
+    out.push(`ERROR ${String(e)}`)
+  }
+  console.log('THEME_TEST:')
+  for (const l of out) console.log('  ' + l)
+  writeTestResult('theme', out)
+  app.exit(0)
+}
+
 // ---------------- 样式层级自检（MOYU_TEST_STYLE=1） ----------------
 /**
  * 固化「表面分层」规则，防止以后再往批量选择器里加类时静默回归：
@@ -1927,7 +2040,7 @@ async function runStyleTest(): Promise<void> {
   mainWin = win
   try {
     await win.loadFile(path.join(__dirname, '../renderer/index.html'), {
-      search: '?tab=settings&sec=data&theme=dark',
+      search: '?tab=settings&sec=wallpaper&theme=dark',
     })
     const ready = await waitFor(win, `document.querySelector('.kv-list li') ? 1 : 0`, 25000)
     if (!ready) throw new Error('设置页未就绪')
@@ -1946,12 +2059,27 @@ async function runStyleTest(): Promise<void> {
         }
       }
       const nav = document.querySelector('.settings-nav')
+      const shell = document.querySelector('.app-shell')
+      const topbar = document.querySelector('.topbar')
+      const sr = shell ? shell.getBoundingClientRect() : null
+      const tr = topbar ? topbar.getBoundingClientRect() : null
       return JSON.stringify({
         row: pick('.kv-list li'),
         block: pick('.set-block'),
         actions: pick('.detail-actions'),
         navBg: nav ? getComputedStyle(nav).backgroundColor : '',
+        builtinBadges: document.querySelectorAll('.wp-badge').length,
+        numRows: Array.from(document.querySelectorAll('.num-row')).map((row) => ({
+          label: row.querySelector('.num-label')?.textContent || '',
+          value: row.querySelector('.num-input')?.value || '',
+          hasRange: !!row.querySelector('input[type="range"]'),
+          hasStepper: row.querySelectorAll('.num-btn').length === 2,
+        })),
         dockVar: getComputedStyle(document.documentElement).getPropertyValue('--dock-bg').trim(),
+        // 外壳必须严丝合缝贴住视口：顶栏 top=0、左侧 0、高度等于视口
+        shell: sr ? { top: Math.round(sr.top), left: Math.round(sr.left), h: Math.round(sr.height) } : null,
+        topbarTop: tr ? Math.round(tr.top) : -1,
+        viewport: [window.innerWidth, window.innerHeight],
       })
     })()`)
     out.push(String(raw))
@@ -1961,6 +2089,11 @@ async function runStyleTest(): Promise<void> {
       actions: { bg: string; bt: string } | null
       navBg: string
       dockVar: string
+      builtinBadges: number
+      numRows: { label: string; value: string; hasRange: boolean; hasStepper: boolean }[]
+      shell: { top: number; left: number; h: number } | null
+      topbarTop: number
+      viewport: [number, number]
     }
 
     const transparent = (v: string) => v === 'rgba(0, 0, 0, 0)' || v === 'transparent'
@@ -1974,8 +2107,94 @@ async function runStyleTest(): Promise<void> {
     // 侧栏：计算值与 --dock-bg 完全相同 → 证明它直接由该变量驱动（改透明度设置时联动）
     const okNav = !!r.navBg && r.navBg !== 'rgba(0, 0, 0, 0)' && r.navBg === r.dockVar
 
-    out.push(`checks row=${okRow} block=${okBlock} nav=${okNav}`)
-    out.push(okRow && okBlock && okNav ? 'STYLE_OK' : 'STYLE_FAIL')
+    // 顶栏壁纸弹层：内置壁纸要在其中可见，且窄弹层里数值行不能溢出
+    const popover = await win.webContents.executeJavaScript(`(async () => {
+      const btn = Array.from(document.querySelectorAll('.topbar .tbtn')).find((b) => (b.textContent || '').includes('壁纸'))
+      btn?.click()
+      await new Promise((r) => setTimeout(r, 500))
+      const panel = document.querySelector('.wp-panel')
+      if (!panel) return JSON.stringify({ open: false })
+      const r = panel.getBoundingClientRect()
+      const row = panel.querySelector('.wp-opacity-row')
+      const rr = row ? row.getBoundingClientRect() : null
+      return JSON.stringify({
+        open: true,
+        w: Math.round(r.width),
+        overflowRight: Math.round(r.right) > window.innerWidth,
+        builtin: Array.from(panel.querySelectorAll('.wp-badge')).length,
+        opacityRowW: rr ? Math.round(rr.width) : 0,
+        rowOverflow: rr ? rr.right > r.right + 1 : false,
+        hasNumField: !!panel.querySelector('.numfield'),
+        labels: Array.from(panel.querySelectorAll('.wp-label')).map((l) => l.textContent || ''),
+      })
+    })()`)
+    out.push(`popover ${popover}`)
+    const pop = JSON.parse(String(popover)) as {
+      open: boolean
+      w: number
+      overflowRight: boolean
+      builtin: number
+      rowOverflow: boolean
+      hasNumField: boolean
+    }
+    const okPopover = pop.open && !pop.overflowRight && !pop.rowOverflow && pop.hasNumField && pop.builtin >= 2
+
+    // 数值控件：数字框可直接输入、加减按钮能步进（这两条是用户明确要的交互）
+    const inputProbe = await win.webContents.executeJavaScript(`(async () => {
+      const row = Array.from(document.querySelectorAll('.num-row')).find((r) => (r.querySelector('.num-label')?.textContent || '').includes('背景透明度'))
+      if (!row) return JSON.stringify({ err: 'no-row' })
+      const input = row.querySelector('.num-input')
+      const plus = row.querySelectorAll('.num-btn')[1]
+      const before = input.value
+      plus?.click()
+      await new Promise((r) => setTimeout(r, 120))
+      const afterStep = input.value
+      // 直接输入：原生 setter + input 事件（受控组件必须这样写才能触发 React onChange）
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
+      setter.call(input, '64')
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+      input.dispatchEvent(new Event('blur', { bubbles: true }))
+      await new Promise((r) => setTimeout(r, 200))
+      return JSON.stringify({ before, afterStep, afterType: input.value })
+    })()`)
+    out.push(`num-input ${inputProbe}`)
+    const inp = JSON.parse(String(inputProbe)) as { before?: string; afterStep?: string; afterType?: string }
+    const okNumInput = !!inp.before && Number(inp.afterStep) === Number(inp.before) + 1 && inp.afterType === '64'
+    const okNumRows = r.numRows.length >= 3 && r.numRows.every((x) => x.hasRange && x.hasStepper && Number(x.value) >= 0)
+    // 内置壁纸不仅要"列出来"，还要能真的渲染（data:image/svg+xml 走 CSP 的 img-src data:）
+    const builtinProbe = await win.webContents.executeJavaScript(`(async () => {
+      const row = Array.from(document.querySelectorAll('.wp-item')).find((x) => (x.textContent || '').includes('深海夜'))
+      row?.querySelector('.wp-item-main')?.click()
+      await new Promise((r) => setTimeout(r, 900))
+      const img = document.querySelector('.wallpaper-media')
+      return JSON.stringify({
+        listed: !!row,
+        media: !!img,
+        w: img ? img.naturalWidth : 0,
+        h: img ? img.naturalHeight : 0,
+        kind: img ? img.src.slice(0, 20) : '',
+      })
+    })()`)
+    out.push(`builtin-wallpaper ${builtinProbe}`)
+    const bi = JSON.parse(String(builtinProbe)) as { listed: boolean; media: boolean; w: number; kind: string }
+    const okBuiltin = r.builtinBadges >= 2 && bi.listed && bi.media && bi.w > 0
+
+    // 外壳贴边：顶栏不能离窗口顶部有任何空隙（用户反馈过"最上方多出一条"）
+    const okFlush =
+      !!r.shell &&
+      r.shell.top === 0 &&
+      r.shell.left === 0 &&
+      Math.abs(r.shell.h - r.viewport[1]) <= 1 &&
+      r.topbarTop === 0
+    out.push(`flush shell=${JSON.stringify(r.shell)} topbarTop=${r.topbarTop} viewport=${r.viewport}`)
+    out.push(
+      `checks row=${okRow} block=${okBlock} nav=${okNav} flush=${okFlush} numRows=${okNumRows} numInput=${okNumInput} builtin=${okBuiltin} popover=${okPopover}`
+    )
+    out.push(
+      okRow && okBlock && okNav && okFlush && okNumRows && okNumInput && okBuiltin && okPopover
+        ? 'STYLE_OK'
+        : 'STYLE_FAIL'
+    )
   } catch (e) {
     out.push(`ERROR ${String(e)}`)
   }
@@ -2653,6 +2872,45 @@ async function runReaderTest(name: string, query: string): Promise<void> {
         bodyText: (q('.reader-body')?.innerText ?? '').replace(/\s+/g, ' ').slice(0, 80),
         hostSize: [q('.epub-host')?.clientWidth ?? 0, q('.epub-host')?.clientHeight ?? 0],
         iframeCount: document.querySelectorAll('.reader-body iframe').length,
+        /* 排版面板布局度量：宽度溢出 / 文字裁切 / 控件尺寸（视觉断言，截图之外的第二道保险） */
+        panel: (() => {
+          const box = document.querySelector('.reader-settings')
+          if (!box) return null
+          const r = box.getBoundingClientRect()
+          const fields = Array.from(box.querySelectorAll('.numfield')).map((el) => {
+            const b = el.getBoundingClientRect()
+            const inp = el.querySelector('input')
+            return {
+              w: Math.round(b.width),
+              h: Math.round(b.height),
+              value: inp ? inp.value : '',
+              clipped: inp ? inp.scrollWidth > inp.clientWidth + 1 : false,
+            }
+          })
+          const labels = Array.from(box.querySelectorAll('.rs-label')).map((el) => {
+            const b = el.getBoundingClientRect()
+            return { text: el.textContent || '', w: Math.round(b.width), h: Math.round(b.height) }
+          })
+          const segs = Array.from(box.querySelectorAll('.rs-seg button')).map((el) => {
+            const b = el.getBoundingClientRect()
+            return {
+              text: (el.textContent || '').trim(),
+              w: Math.round(b.width),
+              clipped: el.scrollWidth > el.clientWidth + 1,
+            }
+          })
+          return {
+            width: Math.round(r.width),
+            right: Math.round(window.innerWidth - r.right),
+            bottomGap: Math.round(window.innerHeight - r.bottom),
+            overflowX: r.left < 0 || r.right > window.innerWidth + 1,
+            fields,
+            labels,
+            segs,
+            panelBg: getComputedStyle(box).backgroundColor,
+            bodyBg: getComputedStyle(document.querySelector('.reader-root')).backgroundColor,
+          }
+        })(),
         epubScroll: (() => {
           const host = document.querySelector('.epub-host')
           if (!host) return null
@@ -3313,6 +3571,10 @@ if (!app.requestSingleInstanceLock() && !isShot) {
     }
     if (process.env.MOYU_TEST_ANNOT) {
       void runAnnotTest(process.env.MOYU_TEST_ANNOT)
+      return
+    }
+    if (process.env.MOYU_TEST_THEME === '1') {
+      void runThemeTest()
       return
     }
     if (process.env.MOYU_TEST_STYLE === '1') {

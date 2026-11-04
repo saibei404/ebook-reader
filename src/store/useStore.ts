@@ -1,6 +1,8 @@
 import { create } from 'zustand'
 import type { Book, Settings, AnimMode, MaterialStyle, BookFormat, WallpaperFit, Shelf } from '@/types/book'
 import { extractCover } from '@/lib/cover-extract'
+import { BUILTIN_WALLPAPERS, isBuiltinWallpaper } from '@/lib/builtin-wallpapers'
+import { broadcastTheme } from '@/reader/locator'
 import { formatFromName } from '@/types/book'
 import {
   allBooks,
@@ -84,6 +86,8 @@ export interface WallpaperItem {
   url: string
   type: string
   sourcePath: string | null
+  /** 内置壁纸（随包提供，不落库、不可删除） */
+  builtin?: boolean
 }
 
 export interface NetpanEntry {
@@ -363,7 +367,8 @@ export const useStore = create<Store>((setState, getState) => ({
     } catch (e) {
       console.warn('[hydrate] 壁纸读取失败，跳过:', e)
     }
-    const wallpapers: WallpaperItem[] = []
+    // 内置壁纸（浅/深）永远排在最前，且不依赖数据库：清空数据后它们仍然可用
+    const wallpapers: WallpaperItem[] = [...BUILTIN_WALLPAPERS]
     for (const w of wpRecs) {
       try {
         wallpapers.push({
@@ -842,6 +847,10 @@ export const useStore = create<Store>((setState, getState) => ({
   },
 
   removeWallpaper: async (id) => {
+    if (isBuiltinWallpaper(id)) {
+      getState().toast('系统默认壁纸不可删除', 'info')
+      return
+    }
     const wasCurrent = getState().settings.wallpaperId === id
     await deleteWallpaper(id)
     setState((s) => ({
@@ -1061,6 +1070,8 @@ export const useStore = create<Store>((setState, getState) => ({
     applyDoc(next)
     setState({ settings: next })
     await setKV('settings', next)
+    // 深浅色是跨窗口的观感开关：通知阅读窗口（它在「跟随」模式下会跟着换）
+    if (patch.theme && patch.theme !== prev.theme) broadcastTheme(next.theme)
     if (nativeApi) {
       await nativeApi.saveSettings({
         theme: next.theme,

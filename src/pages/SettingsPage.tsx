@@ -3,6 +3,7 @@ import { motion } from 'motion/react'
 import { useStore } from '@/store/useStore'
 import { ANIM_MODES, MATERIALS, WALLPAPER_FITS } from '@/types/book'
 import { nativeApi } from '@/lib/native'
+import { SliderField } from '@/components/NumberFields'
 import { formatSize } from '@/lib/format'
 import { exportBackup, importBackup } from '@/lib/backup'
 import { getDB, setKV } from '@/lib/db'
@@ -111,8 +112,8 @@ function WallpaperSection() {
       <section className="set-block">
         <h3>壁纸</h3>
         <p className="set-desc">
-          系统预设壁纸已移除，仅保留深色 / 浅色底层模式（右上角主题按钮或「外观」分区切换）。
-          导入本地壁纸后，壁纸作为底纹层叠加显示，并自动适配当前模式的亮度。
+          内置两张系统壁纸（一张偏白、一张偏深），开箱即用；也可以导入本地图片或视频作为底纹。
+          壁纸会自动适配当前模式的亮度：浅色叠加白色提亮罩，深色叠加黑色压暗罩。
         </p>
         <ul className="kv-list">
           <li>
@@ -128,40 +129,34 @@ function WallpaperSection() {
             <span>壁纸图不变，仅适配罩颜色在黑白之间即时过渡（0.25s），无闪烁、无重新加载</span>
           </li>
         </ul>
-        <div className="slider-row">
-          <span className="detail-key">底纹适配强度</span>
-          <input
-            type="range"
-            min={0}
-            max={80}
-            value={Math.round(settings.wallpaperDim * 100)}
-            onChange={(e) => setWallpaperDimValue(Number(e.target.value) / 100)}
-          />
-          <span className="slider-val">{Math.round(settings.wallpaperDim * 100)}%</span>
-        </div>
-        <div className="slider-row">
-          <span className="detail-key">背景透明度</span>
-          <input
-            type="range"
-            min={20}
-            max={100}
-            value={Math.round(settings.contentOpacity * 100)}
-            onChange={(e) => void setSettings({ contentOpacity: Number(e.target.value) / 100 })}
-          />
-          <span className="slider-val">{Math.round(settings.contentOpacity * 100)}%</span>
-        </div>
+        <SliderField
+          label="底纹适配强度"
+          value={settings.wallpaperDim}
+          min={0}
+          max={80}
+          scale={100}
+          unit="%"
+          onChange={setWallpaperDimValue}
+        />
+        <SliderField
+          label="背景透明度"
+          value={settings.contentOpacity}
+          min={20}
+          max={100}
+          scale={100}
+          unit="%"
+          onChange={(v) => void setSettings({ contentOpacity: v })}
+        />
         <p className="set-desc">背景透明度控制书架区域衬底的不透明度：数值越低壁纸越清晰，越高文字对比越强（浅色模式默认已调低）。</p>
-        <div className="slider-row">
-          <span className="detail-key">Dock 栏透明度</span>
-          <input
-            type="range"
-            min={20}
-            max={90}
-            value={Math.round(settings.dockOpacity * 100)}
-            onChange={(e) => void setSettings({ dockOpacity: Number(e.target.value) / 100 })}
-          />
-          <span className="slider-val">{Math.round(settings.dockOpacity * 100)}%</span>
-        </div>
+        <SliderField
+          label="Dock 栏透明度"
+          value={settings.dockOpacity}
+          min={20}
+          max={90}
+          scale={100}
+          unit="%"
+          onChange={(v) => void setSettings({ dockOpacity: v })}
+        />
         <p className="set-desc">
           Dock 栏（侧栏 + 顶栏）为半透明毛玻璃底纹，透明度默认显著低于书架栏，壁纸在所有界面层级均可见；该滑块也可在顶栏「壁纸」弹层中调节。
         </p>
@@ -169,16 +164,19 @@ function WallpaperSection() {
 
       <section className="set-block">
         <h3>我的壁纸</h3>
-        {wallpapers.length === 0 && <p className="set-desc">还没有导入壁纸，支持下方格式的图片与视频。</p>}
+        <p className="set-desc">「系统」标记的两张随包内置，不可删除；其余为你导入的本地文件。</p>
         {wallpapers.map((w) => (
           <div key={w.id} className={`wp-item${settings.wallpaperId === w.id ? ' active' : ''}`}>
             <button className="wp-item-main" onClick={() => void setSettings({ wallpaperId: w.id })}>
               <span className="wp-item-name">{w.name}</span>
+              {w.builtin && <span className="wp-badge">系统</span>}
               {settings.wallpaperId === w.id && <IconCheck size={13} />}
             </button>
-            <button className="wp-item-del" onClick={() => void removeWallpaper(w.id)} title="删除">
-              <IconTrash size={13} />
-            </button>
+            {!w.builtin && (
+              <button className="wp-item-del" onClick={() => void removeWallpaper(w.id)} title="删除">
+                <IconTrash size={13} />
+              </button>
+            )}
           </div>
         ))}
         <div className="wp-actions">
@@ -223,17 +221,15 @@ function WallpaperSection() {
             </button>
           ))}
         </div>
-        <div className="slider-row">
-          <span className="detail-key">缩放</span>
-          <input
-            type="range"
-            min={25}
-            max={300}
-            value={Math.round(settings.wallpaperZoom * 100)}
-            onChange={(e) => setWallpaperZoom(Number(e.target.value) / 100)}
-          />
-          <span className="slider-val">{Math.round(settings.wallpaperZoom * 100)}%</span>
-        </div>
+        <SliderField
+          label="缩放"
+          value={settings.wallpaperZoom}
+          min={25}
+          max={300}
+          scale={100}
+          unit="%"
+          onChange={setWallpaperZoom}
+        />
       </section>
 
       <section className="set-block">
@@ -753,30 +749,74 @@ function DataSection() {
 }
 
 function AboutSection() {
+  const { toast } = useStore()
   return (
-    <section className="set-block">
-      <h3>关于墨鱼阅读器</h3>
-      <ul className="kv-list">
-        <li>
-          <span>版本</span>
-          <span>0.1.0（MVP · 首页展示模块）</span>
-        </li>
-        <li>
-          <span>技术栈</span>
-          <span>Electron 33 + React 18 + TypeScript + Vite + Motion + Zustand + IndexedDB</span>
-        </li>
-        <li>
-          <span>架构说明</span>
-          <span>
-            前端为 shell 无关的纯 Web 实现；原技术选型为 Tauri 2，因本机缺少 Rust / MSVC 工具链无法编译其 Rust 核心，故以 Electron 交付 exe，前端代码可平移到 Tauri。
-          </span>
-        </li>
-        <li>
-          <span>数据</span>
-          <span>书籍元数据 / 进度 / 封面 / 壁纸全部存于本地 IndexedDB，离线可用</span>
-        </li>
-      </ul>
-    </section>
+    <>
+      <section className="set-block">
+        <h3>关于墨鱼阅读器</h3>
+        <p className="set-desc">
+          本地优先的桌面阅读器：书籍、进度、书签与笔记都只存在这台电脑上，不需要账号，也不上传任何内容。
+        </p>
+        <ul className="kv-list">
+          <li>
+            <span>版本</span>
+            <span>{__APP_VERSION__}（功能完整版 · v32 基线）</span>
+          </li>
+          <li>
+            <span>支持格式</span>
+            <span>
+              EPUB / PDF / TXT / MD / FB2 / DOCX / CBZ 七种可直接阅读；MOBI / AZW3 / CBR 导入时会提示转换
+            </span>
+          </li>
+          <li>
+            <span>阅读能力</span>
+            <span>位置记忆（精确到章内文字）、书签、四色高亮与备注、全篇搜索、排版面板、目录跳转</span>
+          </li>
+          <li>
+            <span>数据位置</span>
+            <span>
+              书籍元数据与笔记存于本机 IndexedDB（Windows 下为 %APPDATA%\墨鱼阅读器）；书籍原文件留在你导入时的位置
+            </span>
+          </li>
+          <li>
+            <span>隐私</span>
+            <span>无账号、无遥测、无后台请求；只有你主动使用「网盘导入」时才会连接你填写的服务器</span>
+          </li>
+          <li>
+            <span>备份与迁移</span>
+            <span>「数据」分区可导出单个 JSON（含进度、书签、笔记与全部设置），换机器时导入即可</span>
+          </li>
+          <li>
+            <span>技术栈</span>
+            <span>Electron 45 · React 18 · TypeScript · Vite · epub.js · pdf.js · IndexedDB</span>
+          </li>
+        </ul>
+        <div className="wp-actions">
+          <button
+            className="tbtn"
+            onClick={async () => {
+              const r = await nativeApi?.exportDiagnostics?.()
+              if (r?.ok) toast('诊断报告已保存，可在反馈时一并提供', 'ok')
+              else if (r && !r.canceled) toast(`导出失败：${r.error ?? '未知错误'}`, 'err')
+            }}
+          >
+            <IconDatabase size={14} />
+            <span>导出诊断报告</span>
+          </button>
+        </div>
+        <p className="set-desc">
+          诊断报告只含版本、系统环境与最近日志，不含书籍正文、笔记内容或任何个人信息；遇到打不开、闪退等问题时可先导出一份。
+        </p>
+      </section>
+
+      <section className="set-block">
+        <h3>为什么用 Electron</h3>
+        <p className="set-desc">
+          前端是 shell 无关的纯 Web 实现（阅读内核、排版、标注都在渲染层）。原计划用 Tauri 2，但本机缺少 Rust / MSVC
+          工具链无法编译其 Rust 核心，因此以 Electron 交付；前端代码可平移到 Tauri，不需要重写业务逻辑。
+        </p>
+      </section>
+    </>
   )
 }
 

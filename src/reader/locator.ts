@@ -8,7 +8,7 @@
  * 共享同一 store，读写无需主进程中转，离线亦可用。
  */
 import type { Locator } from '@/types/book'
-import { putBook, allBooks } from '@/lib/db'
+import { putBook, allBooks, getKV, setKV } from '@/lib/db'
 
 const CHANNEL = 'moyu-reader-sync'
 
@@ -91,4 +91,51 @@ export function createLocatorSaver(bookId: string) {
       await write()
     },
   }
+}
+
+/**
+ * 主题同步（主窗口 ⇄ 阅读窗口）。
+ *
+ * 阅读器的「纸白 / 米黄 / 夜间」是阅读场景偏好，但它同时决定了整体观感；
+ * 用户换完颜色回到书架却还是另一个主题，会显得像两个软件。
+ * 因此：阅读器显式选主题 → 写库 + 广播 → 主窗口跟随；
+ * 主窗口切深浅色 → 广播 → 阅读器在「跟随」时才改（其它主题是用户明确选的，不抢）。
+ */
+export function broadcastTheme(theme: 'dark' | 'light'): void {
+  try {
+    const ch = new BroadcastChannel(CHANNEL)
+    ch.postMessage({ type: 'theme', theme })
+    ch.close()
+  } catch {
+    /* 静默降级：主窗口下次启动读库也能拿到 */
+  }
+}
+
+export function subscribeTheme(cb: (theme: 'dark' | 'light') => void): () => void {
+  try {
+    const ch = new BroadcastChannel(CHANNEL)
+    const h = (e: MessageEvent) => {
+      const d = e.data
+      if (d && d.type === 'theme' && (d.theme === 'dark' || d.theme === 'light')) cb(d.theme)
+    }
+    ch.addEventListener('message', h)
+    return () => {
+      ch.removeEventListener('message', h)
+      ch.close()
+    }
+  } catch {
+    return () => {}
+  }
+}
+
+/** 阅读器侧：把主题写进主界面的设置并广播（合并写入，不动其它字段） */
+export async function applyAppTheme(theme: 'dark' | 'light'): Promise<void> {
+  try {
+    const cur = (await getKV<Record<string, unknown>>('settings')) ?? {}
+    if (cur.theme === theme) return
+    await setKV('settings', { ...cur, theme })
+  } catch {
+    /* 写库失败也要广播：当前会话内的观感先一致 */
+  }
+  broadcastTheme(theme)
 }

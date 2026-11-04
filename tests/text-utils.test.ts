@@ -10,6 +10,7 @@ import {
   markdownToHtml,
   splitPlainText,
   textToHtml,
+  plainParagraphs,
   type Chapter,
 } from '@/reader/text-utils'
 
@@ -255,5 +256,48 @@ describe('fb2ToChapters', () => {
 
   it('XML 损坏时抛错（调用方转成可读错误）', () => {
     expect(() => fb2ToChapters(buf('<FictionBook><body>'))).toThrow()
+  })
+})
+
+describe('plainParagraphs（纯文本分段）', () => {
+  it('无空行、无缩进的网文：每行一段', () => {
+    const raw = '第一段结束了。\n第二段也结束了。\n第三段。'
+    expect(plainParagraphs(raw)).toEqual(['第一段结束了。', '第二段也结束了。', '第三段。'])
+  })
+
+  it('硬折行（长行 + 无句末标点）会被接回同一段', () => {
+    const long = '这是一段长度超过四十个字符的正文内容，用来模拟按照固定列宽折行的电子书文本'
+    const raw = `${long}\n后半句没有标点结尾`
+    const out = plainParagraphs(raw)
+    expect(out.length).toBe(1)
+    expect(out[0]).toContain('后半句')
+  })
+
+  it('行首全角缩进表示新段（未缩进行是续行）', () => {
+    const raw = '\u3000\u3000第一段开头\n接着上一段继续写\n\u3000\u3000第二段开头'
+    expect(plainParagraphs(raw)).toEqual(['第一段开头接着上一段继续写', '第二段开头'])
+  })
+
+  it('有空行时按空行分段，短行之间保留硬换行', () => {
+    expect(textToHtml('一\n二\n\n三')).toBe('<p>一<br/>二</p><p>三</p>')
+  })
+
+  it('超长折行在空行分段模式下被拼接，而不是拆成多段', () => {
+    const line = '这一行已经很长了，长度足够到四十个字符以上，属于被容器宽度折开的续行'
+    const raw = `${line}\n仍然属于同一段的内容。\n\n下一段。`
+    const out = plainParagraphs(raw)
+    expect(out.length).toBe(2)
+    expect(out[0]).toContain('仍然属于同一段')
+  })
+
+  it('西文折行拼接时补空格，不把两个单词粘起来', () => {
+    const raw = 'This line is deliberately long enough to look like a hard wrapped line in a book file\nand continues here.'
+    const out = plainParagraphs(raw)
+    expect(out.length).toBe(1)
+    expect(out[0]).toContain('file and continues')
+  })
+
+  it('纯空白文本返回空数组', () => {
+    expect(plainParagraphs('   \n\u3000\n')).toEqual([])
   })
 })

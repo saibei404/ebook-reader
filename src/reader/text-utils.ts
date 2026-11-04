@@ -65,11 +65,106 @@ export function countTextChars(text: string): number {
 }
 
 /** 纯文本段落 → HTML（按空行分段，段内换行转 <br/>） */
+/** 行首缩进（全角空格 / 两个以上半角空格 / 制表符）—— 中文 TXT 判断新段最可靠的信号 */
+const INDENT_RE = /^(?:\u3000+| {2,}|\t+)/
+
+/** 折行判定阈值：正文一行大约 30–40 字，超过它还没收句基本就是被容器折开的续行 */
+const WRAP_HINT = 30
+
+/** 句末标点：以它结尾的行通常是一段的结束 */
+const SENT_END_RE = /[。！？…；：”』」）)】\]"'.,!?;:]$/
+
+/** 软换行拼接：中文直接拼，西文之间补空格（否则 "word" 与 "word" 会粘成一个词） */
+function joinSoft(prev: string, next: string): string {
+  if (!prev) return next
+  const a = prev.slice(-1)
+  const b = next.slice(0, 1)
+  const wordish = (c: string) => /[A-Za-z0-9]/.test(c)
+  return wordish(a) && wordish(b) ? `${prev} ${next}` : prev + next
+}
+
+/**
+ * 纯文本 → 段落数组。
+ *
+ * 旧实现按「空行」切段，结果是把整本无空行 TXT 压成一个大段落：
+ * 章节内没有任何段间距、没有首行缩进，屏幕上就是一大坨密不透风的字
+ * （用户反馈「过于密集」的根因）。
+ *
+ * 三种排版约定都要能认：
+ * - `blank`：有空行分段（Markdown 风格），段内单换行是硬换行 → 软拼接；
+ * - `indent`：行首全角缩进表示新段（大量中文 TXT 的写法），未缩进行是续行；
+ * - `line`：既没空行也没缩进 → 每行一段；但若某行没有句末标点且较长，
+ *   判定为硬换行续行（兼顾英文按列折行的 TXT）。
+ */
+export function plainParagraphs(raw: string): string[] {
+  const text = raw.replace(/\r\n?/g, '\n')
+  if (!text.trim()) return []
+  const lines = text.split('\n').map((l) => l.replace(/\s+$/, ''))
+  const filled = lines.filter((l) => l.trim())
+  if (!filled.length) return []
+
+  const hasBlank = /\n[ \t\u3000]*\n/.test(text)
+  const indentedCount = filled.filter((l) => INDENT_RE.test(l)).length
+  /** 缩进占比够高才认为这套 TXT 用缩进分段（少量缩进多半是引文/诗歌） */
+  const useIndent = indentedCount / filled.length >= 0.4
+  const mode: 'indent' | 'blank' | 'line' = useIndent ? 'indent' : hasBlank ? 'blank' : 'line'
+
+  const out: string[] = []
+  let buf = ''
+  const flush = () => {
+    const t = buf.trim()
+    if (t) out.push(t)
+    buf = ''
+  }
+
+  for (const line of lines) {
+    if (!line.trim()) {
+      flush()
+      continue
+    }
+    const isIndented = INDENT_RE.test(line)
+    const clean = line.replace(INDENT_RE, '')
+    if (!buf) {
+      buf = clean
+      continue
+    }
+    if (mode === 'indent') {
+      // 缩进 = 新段；未缩进 = 上一段的续行（中文 TXT 最常见的写法）
+      if (isIndented) {
+        flush()
+        buf = clean
+      } else {
+        buf = joinSoft(buf, clean)
+      }
+      continue
+    }
+    if (mode === 'line') {
+      // 每行一段；只有"长行 + 无句末标点"才当折行续接
+      if (SENT_END_RE.test(buf) || buf.length < WRAP_HINT) {
+        flush()
+        buf = clean
+      } else {
+        buf = joinSoft(buf, clean)
+      }
+      continue
+    }
+    // blank 模式：句末标点收尾 → 新段；贴到行宽的长行 → 折行拼接；
+    // 短行（诗行、对白）保留硬换行，用 <br/> 而不是拆成两段（拆开会多出一段间距）
+    if (SENT_END_RE.test(buf)) {
+      flush()
+      buf = clean
+    } else if (buf.length >= WRAP_HINT) {
+      buf = joinSoft(buf, clean)
+    } else {
+      buf = `${buf}\n${clean}`
+    }
+  }
+  flush()
+  return out
+}
+
 export function textToHtml(body: string): string {
-  const trimmed = body.trim()
-  if (!trimmed) return ''
-  return trimmed
-    .split(/\n{2,}/)
+  return plainParagraphs(body)
     .map((p) => `<p>${escapeHtml(p).replace(/\n/g, '<br/>')}</p>`)
     .join('')
 }

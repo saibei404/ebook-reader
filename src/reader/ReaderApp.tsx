@@ -12,7 +12,7 @@ import {
   deleteAnnotation,
 } from '@/lib/db'
 import { nativeApi } from '@/lib/native'
-import { createLocatorSaver } from './locator'
+import { createLocatorSaver, applyAppTheme, subscribeTheme } from './locator'
 import { decodeText, splitPlainText, markdownToHtml, fb2ToChapters, chapterText, htmlToText, type Chapter } from './text-utils'
 import { chapterIndexAtOffset } from './chapter-window'
 import { docxToChapters } from './formats/docx'
@@ -22,6 +22,7 @@ import { clampExcerpt, makeAnnotationId, cfiStartOf } from '@/lib/annotations'
 import { DEFAULT_PREFS, FONT_STACK, loadPrefs, savePrefs, themeColors, type ReaderPrefs } from './reader-prefs'
 import { perfMark, perfRead } from '@/lib/perf'
 import './reader.css'
+import { NumberField } from '@/components/NumberFields'
 
 // 重引擎按格式懒加载：TXT/FB2 用户不会为 epub.js / pdf.js 付出首屏成本
 const EpubReader = lazy(() => import('./formats/EpubReader').then((m) => ({ default: m.EpubReader })))
@@ -606,10 +607,29 @@ export function ReaderApp() {
       void savePrefs(next)
       return next
     })
+    // 阅读器里换配色，主界面跟着换：纸白/米黄 → 浅色，夜间 → 深色，
+    // 「跟随」是"我不做主张"，不反向改主界面。
+    if (patch.theme) {
+      const next = patch.theme === 'night' ? 'dark' : patch.theme === 'system' ? null : 'light'
+      if (next) void applyAppTheme(next)
+    }
   }
+
+  // 深链：?panel=settings 直接展开排版面板（截图回归与外部跳转都用得上）
+  useEffect(() => {
+    if (new URLSearchParams(location.search).get('panel') === 'settings') setSettingsOpen(true)
+  }, [])
+
+  // 主窗口切深浅色 → 阅读器在「跟随」模式下同频（显式选了纸白/米黄/夜间时不抢）
+  useEffect(() => {
+    return subscribeTheme((t) => setSystemDark(t === 'dark'))
+  }, [])
 
   /* ---------- 渲染 ---------- */
   const fmt = book?.format ?? 'unknown'
+
+  /** 有效深色：主题自身是夜间，或选了「跟随」且当前系统/主界面是深色 */
+  const dark = prefs.theme === 'night' || (prefs.theme === 'system' && systemDark)
 
   return (
     <div
@@ -619,8 +639,8 @@ export function ReaderApp() {
           '--r-bg': colors.bg,
           '--r-fg': colors.fg,
           '--r-sub': colors.sub,
-          '--r-line': systemDark || prefs.theme === 'night' ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
-          '--r-glass': systemDark || prefs.theme === 'night' ? 'rgba(32,32,36,0.86)' : 'rgba(255,255,255,0.82)',
+          '--r-line': dark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
+          '--r-glass': dark ? 'rgba(32,32,36,0.92)' : 'rgba(255,255,255,0.92)',
         } as React.CSSProperties
       }
     >
@@ -796,45 +816,51 @@ export function ReaderApp() {
         </div>
       )}
 
-      {/* 设置面板 */}
+      {/* 设置面板：数值项用「− 值 +」步进器（也可直接输入），选项用分段控件 */}
       {settingsOpen && (
         <div className="reader-settings">
-          <div className="rs-row">
-            <span className="rs-label">字号</span>
-            <input
-              type="range"
-              min={13}
-              max={34}
-              value={prefs.fontSize}
-              onChange={(e) => updatePrefs({ fontSize: Number(e.target.value) })}
-            />
-            <span className="rs-val">{prefs.fontSize}</span>
+          <div className="rs-section">
+            <div className="rs-section-title">排版</div>
+            <div className="rs-row">
+              <span className="rs-label">字号</span>
+              <NumberField
+                value={prefs.fontSize}
+                min={13}
+                max={34}
+                step={1}
+                unit="px"
+                ariaLabel="字号"
+                onChange={(v) => updatePrefs({ fontSize: v })}
+              />
+            </div>
+            <div className="rs-row">
+              <span className="rs-label">行距</span>
+              <NumberField
+                value={prefs.lineHeight}
+                min={1.2}
+                max={2.4}
+                step={0.1}
+                decimals={1}
+                ariaLabel="行距"
+                onChange={(v) => updatePrefs({ lineHeight: v })}
+              />
+            </div>
+            <div className="rs-row">
+              <span className="rs-label">宽度</span>
+              <NumberField
+                value={prefs.maxWidth}
+                min={520}
+                max={1100}
+                step={20}
+                unit="px"
+                ariaLabel="正文宽度"
+                onChange={(v) => updatePrefs({ maxWidth: v })}
+              />
+            </div>
           </div>
-          <div className="rs-row">
-            <span className="rs-label">行距</span>
-            <input
-              type="range"
-              min={120}
-              max={240}
-              value={Math.round(prefs.lineHeight * 100)}
-              onChange={(e) => updatePrefs({ lineHeight: Number(e.target.value) / 100 })}
-            />
-            <span className="rs-val">{prefs.lineHeight.toFixed(1)}</span>
-          </div>
-          <div className="rs-row">
-            <span className="rs-label">宽度</span>
-            <input
-              type="range"
-              min={520}
-              max={1100}
-              step={20}
-              value={prefs.maxWidth}
-              onChange={(e) => updatePrefs({ maxWidth: Number(e.target.value) })}
-            />
-            <span className="rs-val">{prefs.maxWidth}</span>
-          </div>
-          <div className="rs-row">
-            <span className="rs-label">字体</span>
+
+          <div className="rs-section">
+            <div className="rs-section-title">字体</div>
             <div className="rs-seg">
               {(['serif', 'sans', 'kai'] as const).map((f) => (
                 <button
@@ -847,14 +873,22 @@ export function ReaderApp() {
               ))}
             </div>
           </div>
-          <div className="rs-row">
-            <span className="rs-label">主题</span>
+
+          <div className="rs-section">
+            <div className="rs-section-title">主题</div>
             <div className="rs-seg">
               {(['paper', 'sepia', 'night', 'system'] as const).map((t) => (
                 <button
                   key={t}
                   className={prefs.theme === t ? 'active' : ''}
                   onClick={() => updatePrefs({ theme: t })}
+                  title={
+                    t === 'system'
+                      ? '跟随主界面深浅色'
+                      : t === 'night'
+                        ? '夜间：并同步把主界面切成深色'
+                        : '并同步把主界面切成浅色'
+                  }
                 >
                   {t === 'paper' ? '纸白' : t === 'sepia' ? '米黄' : t === 'night' ? '夜间' : '跟随'}
                 </button>

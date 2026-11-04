@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useRef } from 'react'
 import { AnimatePresence } from 'motion/react'
 import { useStore } from '@/store/useStore'
-import { subscribeBookUpdates } from '@/reader/locator'
+import { subscribeBookUpdates, subscribeTheme } from '@/reader/locator'
 import { nativeApi } from '@/lib/native'
 import { WallpaperLayer } from '@/components/WallpaperLayer'
 import { TabBar } from '@/components/TabBar'
@@ -43,6 +43,15 @@ export default function App() {
           b.id === bookId ? { ...b, progress: percent, locator, lastReadAt: locator.updatedAt } : b
         ),
       }))
+    })
+    return off
+  }, [])
+
+  // 阅读窗口里换了主题 → 主窗口跟随（否则回到书架还是旧配色，像两个软件）
+  useEffect(() => {
+    const off = subscribeTheme((theme) => {
+      const s = useStore.getState()
+      if (s.settings.theme !== theme) void s.setSettings({ theme })
     })
     return off
   }, [])

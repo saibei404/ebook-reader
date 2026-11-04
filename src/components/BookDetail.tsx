@@ -8,11 +8,13 @@ import type { Bookmark, Locator } from '@/types/book'
 import { nativeApi } from '@/lib/native'
 import { vtMorphActive } from '@/lib/vt-book'
 import { withAsyncViewTransition } from '@/lib/vt'
+import { t, useLang } from '@/lib/i18n'
 import { IconX, IconImage, IconShuffle, IconRefresh, IconTrash, IconBook } from './Icons'
 
 export function BookDetail() {
-  const { books, covers, procCovers, ui, settings, openBook, removeBook, setCoverFromFile, randomizeCover, resetCover, toast } =
+  const { books, covers, procCovers, ui, openBook, removeBook, setCoverFromFile, randomizeCover, resetCover, toast } =
     useStore()
+  useLang()
   const fileRef = useRef<HTMLInputElement>(null)
   const book = books.find((b) => b.id === ui.selectedId)
   const [bms, setBms] = useState<Bookmark[]>([])
@@ -89,14 +91,16 @@ export function BookDetail() {
       onClick={() => openBook(null)}
     >
       <motion.div
-        className={`detail-panel mat-${settings.material}`}
+        /* 详情弹层统一亚克力材质：不再跟随全局材质设置，保证与其他弹层一致的
+           「半透明 + 噪点 + 高光描边」观感；背景可视度由 --detail-scrim 调节。 */
+        className="detail-panel mat-acrylic"
         initial={morph ? false : { rotateY: 64, opacity: 0, scale: 0.92 }}
         animate={{ rotateY: 0, opacity: 1, scale: 1 }}
         exit={{ rotateY: 46, opacity: 0, scale: 0.95 }}
         transition={{ type: 'spring', stiffness: 240, damping: 26 }}
         onClick={(e) => e.stopPropagation()}
       >
-        <button className="detail-close" onClick={() => openBook(null)} title="关闭">
+        <button className="detail-close" onClick={() => openBook(null)} title={t('detail.close')}>
           <IconX />
         </button>
 
@@ -115,12 +119,12 @@ export function BookDetail() {
           <div className="detail-cover-actions">
             <button className="tbtn sm" onClick={() => fileRef.current?.click()}>
               <IconImage size={14} />
-              <span>更换封面</span>
+              <span>{t('detail.changeCover')}</span>
             </button>
-            <button className="tbtn sm" onClick={() => void swapCover(() => randomizeCover(book.id))} title="随机生成一张封面">
+            <button className="tbtn sm" onClick={() => void swapCover(() => randomizeCover(book.id))} title={t('detail.random')}>
               <IconShuffle size={14} />
             </button>
-            <button className="tbtn sm" onClick={() => void swapCover(() => resetCover(book.id))} title="恢复默认封面">
+            <button className="tbtn sm" onClick={() => void swapCover(() => resetCover(book.id))} title={t('detail.reset')}>
               <IconRefresh size={14} />
             </button>
           </div>
@@ -145,24 +149,24 @@ export function BookDetail() {
           {book.description && <p className="detail-desc">{book.description}</p>}
 
           <div className="detail-row">
-            <span className="detail-key">阅读进度</span>
-            <div className="detail-progress-bar" title="进度由阅读位置自动记录">
+            <span className="detail-key">{t('detail.progress')}</span>
+            <div className="detail-progress-bar" title={t('detail.progressTip')}>
               <span style={{ width: `${pct}%` }} />
             </div>
             <span className="detail-val">{pct}%</span>
           </div>
 
           <div className="detail-row">
-            <span className="detail-key">文件大小</span>
+            <span className="detail-key">{t('detail.size')}</span>
             <span className="detail-val">{formatSize(book.size)}</span>
           </div>
           <div className="detail-row">
-            <span className="detail-key">加入时间</span>
+            <span className="detail-key">{t('detail.added')}</span>
             <span className="detail-val">{new Date(book.addedAt).toLocaleDateString('zh-CN')}</span>
           </div>
           {book.sourcePath && (
             <div className="detail-row">
-              <span className="detail-key">本地路径</span>
+              <span className="detail-key">{t('detail.path')}</span>
               <span className="detail-val path" title={book.sourcePath}>
                 {book.sourcePath}
               </span>
@@ -170,8 +174,8 @@ export function BookDetail() {
           )}
 
           <div className="detail-row">
-            <span className="detail-key">书签</span>
-            <span className="detail-val">{bms.length} 个</span>
+            <span className="detail-key">{t('detail.bms')}</span>
+            <span className="detail-val">{t('detail.bmCount', { n: bms.length })}</span>
           </div>
           {bms.length > 0 && (
             <div className="detail-bm-list">
@@ -181,13 +185,13 @@ export function BookDetail() {
                     className="detail-bm-jump"
                     onClick={() => {
                       if (!nativeApi?.openReader) {
-                        toast('当前环境不支持打开阅读窗口', 'err')
+                        toast(t('detail.noReader'), 'err')
                         return
                       }
                       // 与阅读器内跳转同一编码：base64(encodeURIComponent(json))
                       nativeApi.openReader(book.id, btoa(encodeURIComponent(JSON.stringify(b.locator))))
                     }}
-                    title={`跳转到：${b.label}`}
+                    title={t('detail.jump', { label: b.label })}
                   >
                     {b.label}
                   </button>
@@ -197,13 +201,13 @@ export function BookDetail() {
                       await deleteBookmark(b.id)
                       setBms((prev) => prev.filter((x) => x.id !== b.id))
                     }}
-                    title="删除书签"
+                    title={t('detail.delBm')}
                   >
                     ×
                   </button>
                 </div>
               ))}
-              {bms.length > 5 && <div className="detail-bm-more">还有 {bms.length - 5} 个书签…</div>}
+              {bms.length > 5 && <div className="detail-bm-more">{t('detail.moreBms', { n: bms.length - 5 })}</div>}
             </div>
           )}
 
@@ -212,15 +216,15 @@ export function BookDetail() {
               className="tbtn primary"
               onClick={() => {
                 if (!book.sourcePath) {
-                  toast('这本书没有关联的本地文件，请在书架重新导入原始文件', 'err')
+                  toast(t('detail.noFile'), 'err')
                   return
                 }
                 if (nativeApi?.openReader) nativeApi.openReader(book.id)
-                else toast('当前环境不支持打开阅读窗口（请使用桌面客户端）', 'err')
+                else toast(t('detail.noReader'), 'err')
               }}
             >
               <IconBook size={15} />
-              <span>继续阅读</span>
+              <span>{t('detail.continue')}</span>
             </button>
             <button
               className="tbtn danger"
@@ -229,7 +233,7 @@ export function BookDetail() {
               }}
             >
               <IconTrash size={14} />
-              <span>移除</span>
+              <span>{t('detail.remove')}</span>
             </button>
           </div>
 
@@ -239,7 +243,7 @@ export function BookDetail() {
               initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
             >
-              提示：点击左侧「更换封面」可选择本地图片；「随机」可即时生成一张程序化封面。
+              {t('detail.coverTip')}
             </motion.div>
           )}
         </div>

@@ -1,28 +1,30 @@
 import { motion } from 'motion/react'
 import { useStore } from '@/store/useStore'
 import { withViewTransition } from '@/lib/vt'
+import { t, useLang } from '@/lib/i18n'
 import { IconLibrary, IconNote, IconUser } from './Icons'
 
 const TABS = [
-  { id: 'library' as const, label: '书架', Icon: IconLibrary },
-  { id: 'notes' as const, label: '笔记', Icon: IconNote },
-  { id: 'profile' as const, label: '我的', Icon: IconUser },
+  { id: 'library' as const, key: 'tab.library', Icon: IconLibrary },
+  { id: 'notes' as const, key: 'tab.notes', Icon: IconNote },
+  { id: 'profile' as const, key: 'tab.profile', Icon: IconUser },
 ]
 
 export function TabBar() {
   const { ui, settings, setUI } = useStore()
+  useLang()
 
   return (
     <div className={`tabbar mat-${settings.material}`}>
       {/* 左上角不再单独占一栏放 logo + 软件名：窗口标题区在顶栏，侧栏直接从导航开始 */}
       <nav className="tabbar-nav">
-        {TABS.map((t) => {
-          const active = ui.tab === t.id
+        {TABS.map((tab) => {
+          const active = ui.tab === tab.id
           return (
             <button
-              key={t.id}
+              key={tab.id}
               className={`tab-btn${active ? ' active' : ''}`}
-              onClick={() => withViewTransition(() => setUI({ tab: t.id }))}
+              onClick={() => withViewTransition(() => setUI({ tab: tab.id }))}
             >
               {active && (
                 <motion.span
@@ -32,8 +34,8 @@ export function TabBar() {
                 />
               )}
               <span className="tab-btn-inner">
-                <t.Icon size={17} />
-                <span>{t.label}</span>
+                <tab.Icon size={17} />
+                <span>{t(tab.key)}</span>
               </span>
             </button>
           )

@@ -7,26 +7,27 @@ import { BookGrid } from '@/components/BookGrid'
 import { ShelfSection } from '@/components/ShelfSection'
 import { IconPlus, IconLibrary } from '@/components/Icons'
 import { nativeApi } from '@/lib/native'
+import { t, useLang } from '@/lib/i18n'
 
-const FILTERS: { id: 'all' | 'reading' | 'unread' | 'done'; label: string }[] = [
-  { id: 'all', label: '全部' },
-  { id: 'reading', label: '在读' },
-  { id: 'unread', label: '未读' },
-  { id: 'done', label: '读完' },
+const FILTERS: { id: 'all' | 'reading' | 'unread' | 'done'; key: string }[] = [
+  { id: 'all', key: 'filter.all' },
+  { id: 'reading', key: 'filter.reading' },
+  { id: 'unread', key: 'filter.unread' },
+  { id: 'done', key: 'filter.done' },
 ]
 
-const SORTS: { id: 'recent' | 'title' | 'author' | 'progress' | 'manual'; label: string }[] = [
-  { id: 'recent', label: '最近阅读' },
-  { id: 'title', label: '书名' },
-  { id: 'author', label: '作者' },
-  { id: 'progress', label: '进度' },
-  { id: 'manual', label: '自定义顺序' },
+const SORTS: { id: 'recent' | 'title' | 'author' | 'progress' | 'manual'; key: string }[] = [
+  { id: 'recent', key: 'sort.recent' },
+  { id: 'title', key: 'sort.title' },
+  { id: 'author', key: 'sort.author' },
+  { id: 'progress', key: 'sort.progress' },
+  { id: 'manual', key: 'sort.manual' },
 ]
 
-const CARD_SIZES: { id: 'sm' | 'md' | 'lg'; label: string }[] = [
-  { id: 'sm', label: '小' },
-  { id: 'md', label: '中' },
-  { id: 'lg', label: '大' },
+const CARD_SIZES: { id: 'sm' | 'md' | 'lg'; key: string }[] = [
+  { id: 'sm', key: 'size.sm' },
+  { id: 'md', key: 'size.md' },
+  { id: 'lg', key: 'size.lg' },
 ]
 
 /** 组内顺序：有分组按 bookIds（手动顺序），未分组按导入时间 */
@@ -55,6 +56,7 @@ export function LibraryPage() {
     moveBookToShelf,
     reorderInShelf,
   } = useStore()
+  useLang()
 
   const [draggingId, setDraggingId] = useState<string | null>(null)
   /** 未分组是虚拟组，折叠状态只放内存（不写 kv） */
@@ -167,8 +169,8 @@ export function LibraryPage() {
   }
 
   const shelfChips = [
-    { id: 'all', label: '全部', count: books.length },
-    { id: 'ungrouped', label: '未分组', count: grouped.ungrouped.length },
+    { id: 'all', label: t('group.all'), count: books.length },
+    { id: 'ungrouped', label: t('group.ungrouped'), count: grouped.ungrouped.length },
     ...shelves.map((s) => ({ id: s.id, label: s.name, count: s.bookIds.length })),
   ]
 
@@ -182,7 +184,7 @@ export function LibraryPage() {
               className={`chip${ui.filter === f.id ? ' active' : ''}`}
               onClick={() => setUI({ filter: f.id })}
             >
-              <span>{f.label}</span>
+              <span>{t(f.key)}</span>
             </button>
           ))}
         </div>
@@ -192,11 +194,11 @@ export function LibraryPage() {
             className="sort-select"
             value={ui.sort}
             onChange={(e) => setUI({ sort: e.target.value as typeof ui.sort })}
-            title="排序方式"
+            title={t('sort.by')}
           >
             {SORTS.map((s) => (
               <option key={s.id} value={s.id}>
-                {s.label}
+                {t(s.key)}
               </option>
             ))}
           </select>
@@ -224,7 +226,7 @@ export function LibraryPage() {
                 e.stopPropagation()
                 dropToShelf(targetId)
               }}
-              title={c.id === 'all' ? '显示全部分组' : `${c.label}（${c.count} 本）`}
+              title={c.id === 'all' ? t('group.showAll') : t('group.countTitle', { label: c.label, n: c.count })}
             >
               <span>{c.label}</span>
               <span className="shelf-chip-count">{c.count}</span>
@@ -237,7 +239,7 @@ export function LibraryPage() {
             ref={newRef}
             className="shelf-new-input"
             value={newName}
-            placeholder="分组名称"
+            placeholder={t('group.name')}
             onChange={(e) => setNewName(e.target.value)}
             onBlur={() => void submitNewShelf()}
             onKeyDown={(e) => {
@@ -249,32 +251,32 @@ export function LibraryPage() {
             }}
           />
         ) : (
-          <button className="shelf-add" onClick={() => setCreating(true)} title="新建分组">
+          <button className="shelf-add" onClick={() => setCreating(true)} title={t('group.new')}>
             <IconPlus size={13} />
-            <span>分组</span>
+            <span>{t('group.add')}</span>
           </button>
         )}
       </div>
 
       <div className="library-sub">
-        <span className="library-count">{list.length} 本在架</span>
+        <span className="library-count">{t('stats.onShelf', { n: list.length })}</span>
         {current && (
           <span className="library-hint">
-            动效：{current.label} · {current.hint}
+            {t('stats.anim', { name: t(`anim.${current.id}`), hint: t(`anim.${current.id}.hint`) })}
           </span>
         )}
         <span className="library-hint">
-          <NumberFlow value={doneCount} /> 本已读完
+          <NumberFlow value={doneCount} /> {t('stats.done', { n: '' }).trim()}
         </span>
         {/* 封面尺寸（自「我的 → 外观」迁移而来）：位于统计栏右侧 */}
-        <div className="lib-card-size" title="书籍封面尺寸">
+        <div className="lib-card-size" title={t('size.tip')}>
           {CARD_SIZES.map((c) => (
             <button
               key={c.id}
               className={`lib-cs-btn${settings.cardSize === c.id ? ' active' : ''}`}
               onClick={() => void setSettings({ cardSize: c.id })}
             >
-              {c.label}
+              {t(c.key)}
             </button>
           ))}
         </div>
@@ -311,21 +313,21 @@ export function LibraryPage() {
           {books.length === 0 && (
             <div className="empty-state">
               <IconLibrary size={44} />
-              <h3><TextShimmer>书架空空如也</TextShimmer></h3>
-              <p>导入本地书籍，或使用网盘导入</p>
+              <h3><TextShimmer>{t('empty.shelf')}</TextShimmer></h3>
+              <p>{t('empty.shelfHint')}</p>
               <button className="tbtn primary" onClick={onImport}>
                 <IconPlus size={15} />
-                <span>导入书籍</span>
+                <span>{t('empty.import')}</span>
               </button>
             </div>
           )}
           {books.length > 0 && list.length === 0 && (
             <div className="empty-state">
               <IconLibrary size={44} />
-              <h3><TextShimmer>没有符合条件的书籍</TextShimmer></h3>
-              <p>当前筛选或搜索条件下没有匹配项</p>
+              <h3><TextShimmer>{t('empty.none')}</TextShimmer></h3>
+              <p>{t('empty.noneHint')}</p>
               <button className="tbtn" onClick={() => setUI({ filter: 'all', search: '' })}>
-                <span>重置筛选条件</span>
+                <span>{t('empty.reset')}</span>
               </button>
             </div>
           )}
@@ -334,23 +336,23 @@ export function LibraryPage() {
         books.length === 0 ? (
           <div className="empty-state">
             <IconLibrary size={44} />
-            <h3><TextShimmer>书架空空如也</TextShimmer></h3>
-            <p>导入本地书籍，或使用网盘导入</p>
+            <h3><TextShimmer>{t('empty.shelf')}</TextShimmer></h3>
+            <p>{t('empty.shelfHint')}</p>
             <button className="tbtn primary" onClick={onImport}>
               <IconPlus size={15} />
-              <span>导入书籍</span>
+              <span>{t('empty.import')}</span>
             </button>
           </div>
         ) : (
           <div className="empty-state">
             <IconLibrary size={44} />
-            <h3><TextShimmer>没有符合条件的书籍</TextShimmer></h3>
-            <p>当前筛选或搜索条件下没有匹配项</p>
+            <h3><TextShimmer>{t('empty.none')}</TextShimmer></h3>
+            <p>{t('empty.noneHint')}</p>
             <button
               className="tbtn"
               onClick={() => setUI({ filter: 'all', search: '', shelfFilter: 'all' })}
             >
-              <span>重置筛选条件</span>
+              <span>{t('empty.reset')}</span>
             </button>
           </div>
         )

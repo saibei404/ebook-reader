@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'motion/react'
 import { useStore } from '@/store/useStore'
 import { nativeApi } from '@/lib/native'
+import { t, useLang } from '@/lib/i18n'
 import NumberFlow from '@number-flow/react'
 import { NumberField } from './NumberFields'
 import {
@@ -32,9 +33,9 @@ function ImportBooksButton() {
 
   return (
     <>
-      <button className="tbtn" onClick={onClick} title="导入本地书籍">
+      <button className="tbtn" onClick={onClick} title={t('top.importTip')}>
         <IconPlus size={15} />
-        <span className="tbtn-text">导入</span>
+        <span className="tbtn-text">{t('top.import')}</span>
       </button>
       <input
         ref={inputRef}
@@ -111,21 +112,21 @@ function WallpaperPopover() {
           transition={{ type: 'spring', stiffness: 420, damping: 32 }}
         >
       <div className="wp-section">
-        <div className="wp-label">我的壁纸</div>
+        <div className="wp-label">{t('wp.mine')}</div>
             {wallpapers.map((w) => (
               <div key={w.id} className={`wp-item${settings.wallpaperId === w.id ? ' active' : ''}`}>
                 <button
                   className="wp-item-main"
                   onClick={() => void setSettings({ wallpaperId: w.id })}
-                  title={w.builtin ? '系统默认壁纸' : w.name}
+                  title={w.builtin ? t('wp.badgeTip') : w.name}
                 >
                   <span className="wp-item-name">{w.name}</span>
                   {/* 内置壁纸：标注来源、不给删除入口（删了也还在，容易让人误解） */}
-                  {w.builtin && <span className="wp-badge">系统</span>}
+                  {w.builtin && <span className="wp-badge">{t('wp.badge')}</span>}
                   {settings.wallpaperId === w.id && <span className="wp-item-check" />}
                 </button>
                 {!w.builtin && (
-                  <button className="wp-item-del" onClick={() => void removeWallpaper(w.id)} title="删除">
+                  <button className="wp-item-del" onClick={() => void removeWallpaper(w.id)} title={t('wp.delete')}>
                     <span className="wp-item-x" />
                   </button>
                 )}
@@ -136,21 +137,21 @@ function WallpaperPopover() {
           <div className="wp-actions">
             <button className="tbtn primary" onClick={onImport}>
               <IconImage size={14} />
-              <span>导入本地壁纸</span>
+              <span>{t('wp.import')}</span>
             </button>
           </div>
 
           <div className="wp-section">
-            <div className="wp-label">显示模式</div>
+            <div className="wp-label">{t('wp.display')}</div>
             <div className="wp-fit-quick">
               {(['cover', 'contain', 'stretch'] as const).map((f) => (
                 <button
                   key={f}
                   className={`chip${settings.wallpaperFit === f ? ' active' : ''}`}
                   onClick={() => void setSettings({ wallpaperFit: f })}
-                  title={`${f} 模式`}
+                  title={t(`wp.fit.${f}`)}
                 >
-                  <span>{f === 'cover' ? '覆盖' : f === 'contain' ? '适应' : '拉伸'}</span>
+                  <span>{t(`wp.fit.${f}`)}</span>
                 </button>
               ))}
             </div>
@@ -158,7 +159,7 @@ function WallpaperPopover() {
 
           {/* 全局透明度：一个滑块同时调节书架与 Dock 底纹透明度；细分项在「我的 → 壁纸」 */}
           <div className="wp-section">
-            <div className="wp-label">全局透明度</div>
+            <div className="wp-label">{t('wp.opacity')}</div>
             <div className="wp-opacity-row">
               <input
                 type="range"
@@ -182,7 +183,7 @@ function WallpaperPopover() {
                 onChange={(v) => void setSettings({ contentOpacity: v / 100, dockOpacity: v / 100 })}
               />
             </div>
-            <div className="wp-label-sub">统一调节书架与 Dock 栏底纹透明度；分别微调请在「我的 → 壁纸」。</div>
+            <div className="wp-label-sub">{t('wp.opacityHint')}</div>
           </div>
         </motion.div>
       )}
@@ -195,10 +196,10 @@ function WallpaperPopover() {
         ref={btnRef}
         className={`tbtn${open ? ' active' : ''}`}
         onClick={() => (open ? setUI({ wallpaperOpen: false }) : openPanel())}
-        title="壁纸"
+        title={t('top.wallpaper')}
       >
         <IconImage size={15} />
-        <span className="tbtn-text">壁纸</span>
+        <span className="tbtn-text">{t('top.wallpaper')}</span>
       </button>
       {typeof document !== 'undefined' && createPortal(panel, document.body)}
       <input
@@ -217,23 +218,24 @@ function WallpaperPopover() {
 }
 
 const PAGE_TITLES: Record<string, string> = {
-  library: '书架',
-  notes: '笔记',
-  profile: '我的',
+  library: 'tab.library',
+  notes: 'tab.notes',
+  profile: 'tab.profile',
 }
 
 export function TopBar() {
   const { settings, setSettings, books, ui, setUI, toast } = useStore()
-  const pageTitle = PAGE_TITLES[ui.tab] ?? '书架'
+  useLang()
+  const pageTitle = t(PAGE_TITLES[ui.tab] ?? 'tab.library')
 
   return (
     <header className="topbar">
       <div className="topbar-drag">
-        <button className="brand-btn" onClick={() => setUI({ tab: 'library' })} title="返回书架首页">
+        <button className="brand-btn" onClick={() => setUI({ tab: 'library' })} title={t('top.backHome')}>
           {/* Logo 仅展示于界面左上方（侧边 Dock 顶部），顶栏只保留页面标题 */}
           <span className="topbar-page">{pageTitle}</span>
           <span className="topbar-count">
-            <NumberFlow value={books.length} /> 本
+            <NumberFlow value={books.length} /> {t('unit.count', { n: '' }).trim()}
           </span>
         </button>
       </div>
@@ -242,7 +244,7 @@ export function TopBar() {
         <IconSearch size={15} />
         <input
           value={ui.search}
-          placeholder="搜索书名 / 作者"
+          placeholder={t('top.search')}
           onChange={(e) => setUI({ search: e.target.value })}
         />
       </div>
@@ -250,8 +252,8 @@ export function TopBar() {
       <div className="topbar-actions">
         <button
           className="tbtn icon-only"
-          onClick={() => toast('书签功能规划中', 'info')}
-          title="书签"
+          onClick={() => toast(t('top.bookmarkPlanned'), 'info')}
+          title={t('top.bookmark')}
         >
           <IconBookmark size={15} />
         </button>
@@ -260,18 +262,18 @@ export function TopBar() {
         <button
           className="tbtn icon-only"
           onClick={() => void setSettings({ theme: settings.theme === 'dark' ? 'light' : 'dark' })}
-          title="主题"
+          title={t('top.theme')}
         >
           {settings.theme === 'dark' ? <IconMoon size={15} /> : <IconSun size={15} />}
         </button>
         <div className="win-controls">
-          <button className="wbtn" onClick={() => nativeApi?.windowControl('minimize')} title="最小化">
+          <button className="wbtn" onClick={() => nativeApi?.windowControl('minimize')} title={t('top.minimize')}>
             <IconMinus />
           </button>
-          <button className="wbtn" onClick={() => nativeApi?.windowControl('maximize')} title="最大化">
+          <button className="wbtn" onClick={() => nativeApi?.windowControl('maximize')} title={t('top.maximize')}>
             <IconSquare />
           </button>
-          <button className="wbtn close" onClick={() => nativeApi?.windowControl('close')} title="关闭（隐藏到托盘）">
+          <button className="wbtn close" onClick={() => nativeApi?.windowControl('close')} title={t('top.close')}>
             <IconX />
           </button>
         </div>

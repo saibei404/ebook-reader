@@ -123,6 +123,8 @@ export const WALLPAPER_FITS: { id: WallpaperFit; label: string; hint: string; ob
   { id: 'stretch', label: '拉伸', hint: '缩放到容器尺寸，允许形变', objectFit: 'fill' },
 ]
 
+import type { Lang } from '@/lib/i18n'
+
 export interface Settings {
   theme: 'light' | 'dark'
   material: MaterialStyle
@@ -138,14 +140,17 @@ export interface Settings {
   cardSize: CardSize
   bossKey: string
   nativeAcrylic: boolean
+  /** 界面语言（简中/繁中/英/日/韩），i18n 词典见 src/lib/i18n.ts */
+  lang: Lang
 }
 
 export const ANIM_MODES: { id: AnimMode; label: string; hint: string }[] = [
-  { id: 'flip', label: '翻页', hint: '3D 书页翻转入场，弹簧跟手' },
-  { id: 'fade', label: '淡入', hint: '柔和平移淡入，最轻量' },
-  { id: 'zoom', label: '缩放', hint: '由小到大弹出，活泼' },
-  { id: 'slide', label: '滑入', hint: '左右交替滑入，节奏感' },
-  { id: 'stack', label: '堆叠', hint: '卡片如洗牌般展开' },
+  // hint 统一「四字，四字」9 字符等长：设置页选项卡要求每张卡片文字完全同宽同高
+  { id: 'flip', label: '翻页', hint: '书页翻卷，弹性跟手' },
+  { id: 'fade', label: '淡入', hint: '平稳浮现，轻量柔和' },
+  { id: 'zoom', label: '缩放', hint: '由小及大，活泼弹出' },
+  { id: 'slide', label: '滑入', hint: '左右交替，节奏分明' },
+  { id: 'stack', label: '堆叠', hint: '洗牌展开，层层叠加' },
 ]
 
 export const MATERIALS: { id: MaterialStyle; label: string; hint: string }[] = [

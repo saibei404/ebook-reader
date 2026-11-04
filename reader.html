@@ -11,12 +11,13 @@
         不放行 blob: 会出现「文字在、样式全丢」（实测颜色从多色退化成 1 色）；
       - font-src 同理放行 blob:（EPUB 内嵌字体）；
       - img/media/connect 放行 moyu-file:（本地书籍协议）与 blob:/data:（封面、EPUB 内图片）；
+        connect-src 另放行 https:：阅读器的「大模型翻译」直接 fetch 用户自填的 API endpoint；
       - frame-src 放行 blob:/data:：EPUB 的章节被 epub.js 装在 blob: iframe 里渲染；
       - object-src 'none'、base-uri 'none'、form-action 'none'：这三项在本应用里完全用不到，直接掐死。
     -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' blob:; img-src 'self' data: blob: moyu-file:; font-src 'self' data: blob:; media-src 'self' blob: moyu-file:; connect-src 'self' data: blob: moyu-file:; worker-src 'self' blob:; frame-src 'self' blob: data:; object-src 'none'; base-uri 'none'; form-action 'none'"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' blob:; img-src 'self' data: blob: moyu-file:; font-src 'self' data: blob:; media-src 'self' blob: moyu-file:; connect-src 'self' data: blob: moyu-file: https:; worker-src 'self' blob:; frame-src 'self' blob: data:; object-src 'none'; base-uri 'none'; form-action 'none'"
     />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   </head>

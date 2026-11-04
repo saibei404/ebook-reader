@@ -3,6 +3,7 @@ import { AnimatePresence } from 'motion/react'
 import { useStore } from '@/store/useStore'
 import { subscribeBookUpdates, subscribeTheme } from '@/reader/locator'
 import { nativeApi } from '@/lib/native'
+import { setLang } from '@/lib/i18n'
 import { WallpaperLayer } from '@/components/WallpaperLayer'
 import { TabBar } from '@/components/TabBar'
 import { TopBar } from '@/components/TopBar'
@@ -34,6 +35,28 @@ export default function App() {
   useEffect(() => {
     void hydrate()
   }, [hydrate])
+
+  // 非首屏模块空闲预取：书籍详情是 lazy chunk，若等首次点击才加载，
+  // 动态 import 会被塞进 View Transition 的 update 回调里——新快照要等网络/磁盘，
+  // 表现为「点开详情明显卡一下」。启动后空闲时把 chunk 拉好，点击时就是纯渲染。
+  useEffect(() => {
+    if (!hydrated) return
+    const warm = () => {
+      void import('@/components/BookDetail')
+      void import('@/pages/SettingsPage')
+      void import('@/pages/NotesPage')
+    }
+    const w = window as Window & { requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number }
+    let cancel = () => {}
+    if (typeof w.requestIdleCallback === 'function') {
+      const id = w.requestIdleCallback(warm, { timeout: 2500 })
+      cancel = () => w.cancelIdleCallback?.(id)
+    } else {
+      const t = window.setTimeout(warm, 1200)
+      cancel = () => window.clearTimeout(t)
+    }
+    return cancel
+  }, [hydrated])
 
   // 阅读窗口把进度写回 IndexedDB 后经 BroadcastChannel 通知；此处只更新内存，避免重复读库
   useEffect(() => {
@@ -69,6 +92,11 @@ export default function App() {
     document.documentElement.dataset.nativeAcrylic =
       settings.nativeAcrylic && settings.material === 'acrylic' ? '1' : '0'
   }, [settings.nativeAcrylic, settings.material])
+
+  // 界面语言 → i18n 模块（词典缺条目时回退 zh-CN）
+  useEffect(() => {
+    setLang(settings.lang)
+  }, [settings.lang])
 
   // 截图测试：?scroll=1 时把内容区滚动到液态玻璃触发阈值以下之外
   useEffect(() => {

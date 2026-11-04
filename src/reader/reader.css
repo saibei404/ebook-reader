@@ -949,6 +949,75 @@ body {
   margin-right: auto;
 }
 
+/* ---------- 翻译结果气泡（复用 note-pop 骨架） ---------- */
+.trans-pop {
+  width: 340px;
+}
+
+.trans-result {
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--r-fg);
+  white-space: pre-wrap;
+  max-height: 180px;
+  overflow-y: auto;
+  padding: 8px 9px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--r-fg) 6%, transparent);
+}
+
+.trans-result.err {
+  color: #f87171;
+  font-size: 12px;
+}
+
+.trans-target {
+  margin-right: auto;
+  font-size: 11px;
+  color: var(--r-sub);
+}
+
+/* 目标语言分段：5 项放不下时折行 */
+.rs-seg.trans-lang-seg {
+  flex-wrap: wrap;
+}
+
+.rs-seg.trans-lang-seg button {
+  flex: 1 0 30%;
+  font-size: 11px;
+}
+
+/* 翻译 API 配置输入框：与 numfield 同一套凹槽语言 */
+.rs-input {
+  width: 100%;
+  height: 32px;
+  margin-top: 8px;
+  padding: 0 10px;
+  border-radius: 10px;
+  border: none;
+  background: color-mix(in srgb, var(--r-fg) 6%, transparent);
+  color: var(--r-fg);
+  font: inherit;
+  font-size: 12px;
+  outline: none;
+  transition: box-shadow 0.16s ease;
+}
+
+.rs-input::placeholder {
+  color: var(--r-sub);
+}
+
+.rs-input:focus {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--r-accent) 45%, transparent);
+}
+
+.rs-hint {
+  margin-top: 8px;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--r-sub);
+}
+
 /* 高亮/笔记列表面板（复用 epub-nav 容器） */
 .anno-panel {
   width: 300px;

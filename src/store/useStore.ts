@@ -70,6 +70,7 @@ export const DEFAULT_SETTINGS: Settings = {
   cardSize: 'md',
   bossKey: 'Alt+X',
   nativeAcrylic: false,
+  lang: 'zh-CN',
 }
 
 export type SortKey = 'recent' | 'title' | 'author' | 'progress' | 'manual'

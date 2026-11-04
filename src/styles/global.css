@@ -67,8 +67,10 @@ code {
   --dock-bg: rgba(22, 22, 25, var(--dock-opacity, 0.55));
   /* 书架内容区衬底：不透明度由「背景透明度」设置项驱动（--content-opacity） */
   --content-surface: rgba(14, 14, 16, var(--content-opacity, 0.72));
-  /* 详情遮罩随主题：深色用中性暗罩，浅色用与底座同色系的浅罩，不能一律压黑 */
-  --detail-scrim: rgba(8, 9, 14, 0.62);
+  /* 详情遮罩随主题：深色用中性暗罩，浅色用与底座同色系的浅罩，不能一律压黑。
+     透明度压低（0.62→0.42 / 0.82→0.58）：详情弹层改亚克力后壁纸要能透出来，
+     文字可读性由弹层自身的半透明底保证 */
+  --detail-scrim: rgba(8, 9, 14, 0.42);
   --chip-surface: #1c1c1f;
   --surf-1: #161619;
   --surf-2: #161619;
@@ -130,7 +132,7 @@ code {
   /* 浅色主题下若沿用深色黑罩，会把冷灰侧栏和白色内容区一起压成「脏灰」，
      且两者底色不同、压暗后色差被放大——这就是「色调不统一」的来源。
      改用与 --bg-base 同色系的浅罩，保持整体仍在浅色调里。 */
-  --detail-scrim: rgba(238, 241, 246, 0.82);
+  --detail-scrim: rgba(238, 241, 246, 0.58);
   --chip-surface: #f2f2f4;
   --surf-1: #f4f4f6;
   --surf-2: #f4f4f6;
@@ -1249,6 +1251,14 @@ code {
   transform-style: preserve-3d;
 }
 
+/* 详情弹层固定亚克力：在亚克力渐变下再叠一层 82% 主题面底——
+   遮罩变透后壁纸能透进弹层，但这层底保证明暗壁纸下文字都清晰 */
+.detail-panel.mat-acrylic {
+  background:
+    var(--acrylic-bg),
+    color-mix(in srgb, var(--surf-solid) 82%, transparent);
+}
+
 .detail-close {
   position: absolute;
   top: 14px;
@@ -1557,6 +1567,16 @@ code {
   margin-top: 8px;
 }
 
+/* 语言切换：5 种语言一行放不下时折行 */
+.seg.lang-seg {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.seg.lang-seg button {
+  flex: 1 0 30%;
+}
+
 .seg button {
   padding: 6px 18px;
   border-radius: 8px;
@@ -1666,8 +1686,15 @@ code {
 
 .anim-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  /* 五个选项等大：固定 5 列 1fr，任何一行都同宽；描述单行等长后高度也一致 */
+  grid-template-columns: repeat(5, 1fr);
   gap: 10px;
+}
+
+@media (max-width: 860px) {
+  .anim-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
 }
 
 .anim-card {
@@ -1699,6 +1726,10 @@ code {
 .anim-hint {
   font-size: 11px;
   color: var(--text-3);
+  /* 描述已统一 9 字符等长，锁单行保证所有卡片同高 */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .slider-row {
@@ -1746,14 +1777,18 @@ code {
   list-style: none;
   display: flex;
   flex-direction: column;
+  gap: 8px;
 }
 
+/* 二级设置项统一圆角矩形卡片：不再用分隔线行 */
 .kv-list li {
   display: flex;
   justify-content: space-between;
   gap: 16px;
-  padding: 8px 0;
-  border-top: 1px solid var(--border-1);
+  padding: 9px 12px;
+  border: 1px solid var(--border-1);
+  border-radius: 10px;
+  background: var(--hover-bg);
   font-size: 13px;
 }
 
@@ -2087,7 +2122,6 @@ code {
 .anim-card,
 .material-card,
 .wp-item,
-.kv-list,
 .webdav-form input,
 .webdav-form-row input,
 .shortcut-input {
@@ -2142,18 +2176,13 @@ code {
 
 /* 第 2 层：侧栏 —— 见上方 .settings-nav 的外观规则（--dock-bg 联动） */
 
-/* 第 3 层：行 —— 不加卡片底，靠 hover 与 hairline 区分 */
+/* 第 3 层：行 —— 不加卡片底，靠 hover 与 hairline 区分。
+   例外：.kv-list li 是二级设置项，统一圆角矩形卡片（见 .kv-list 定义）。 */
 .webdav-row,
 .wp-item-main,
-.shortcut-row,
-.kv-list li {
+.shortcut-row {
   background: transparent;
   border: 0;
-}
-
-/* .kv-list li 保留自己的分隔线（上面的 border:0 会把它清掉，这里补回） */
-.kv-list li {
-  border-top: 1px solid var(--border-1);
 }
 
 /* set-block 只管尺寸：底色/边框/模糊由上方「第 1 层：区块卡」统一提供，

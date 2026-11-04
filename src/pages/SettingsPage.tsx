@@ -3,6 +3,7 @@ import { motion } from 'motion/react'
 import { useStore } from '@/store/useStore'
 import { ANIM_MODES, MATERIALS, WALLPAPER_FITS } from '@/types/book'
 import { nativeApi } from '@/lib/native'
+import { LANGS, t, useLang } from '@/lib/i18n'
 import { SliderField } from '@/components/NumberFields'
 import { formatSize } from '@/lib/format'
 import { exportBackup, importBackup } from '@/lib/backup'
@@ -20,33 +21,49 @@ import {
 } from '@/components/Icons'
 
 const SECTIONS = [
-  { id: 'appearance', label: '外观', Icon: IconSun },
-  { id: 'wallpaper', label: '壁纸', Icon: IconImage },
-  { id: 'webdav', label: '网盘导入', Icon: IconCloud },
-  { id: 'shortcut', label: '快捷键', Icon: IconKeyboard },
-  { id: 'data', label: '数据', Icon: IconDatabase },
-  { id: 'about', label: '关于', Icon: IconInfo },
+  { id: 'appearance', key: 'set.appearance', Icon: IconSun },
+  { id: 'wallpaper', key: 'set.wallpaper', Icon: IconImage },
+  { id: 'webdav', key: 'set.netpan', Icon: IconCloud },
+  { id: 'shortcut', key: 'set.shortcut', Icon: IconKeyboard },
+  { id: 'data', key: 'set.data', Icon: IconDatabase },
+  { id: 'about', key: 'set.about', Icon: IconInfo },
 ]
 
 function AppearanceSection() {
   const { settings, setSettings } = useStore()
+  useLang()
   return (
     <>
       <section className="set-block">
-        <h3>主题</h3>
+        <h3>{t('set.theme')}</h3>
         <div className="seg">
           <button className={settings.theme === 'dark' ? 'active' : ''} onClick={() => void setSettings({ theme: 'dark' })}>
-            深色
+            {t('theme.dark')}
           </button>
           <button className={settings.theme === 'light' ? 'active' : ''} onClick={() => void setSettings({ theme: 'light' })}>
-            浅色
+            {t('theme.light')}
           </button>
         </div>
       </section>
 
       <section className="set-block">
-        <h3>标签栏材质</h3>
-        <p className="set-desc">作用于左侧标签栏、顶栏与弹层。点击即可实时切换。</p>
+        <h3>{t('set.lang')}</h3>
+        <div className="seg lang-seg">
+          {LANGS.map((l) => (
+            <button
+              key={l.id}
+              className={settings.lang === l.id ? 'active' : ''}
+              onClick={() => void setSettings({ lang: l.id })}
+            >
+              {l.label}
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <section className="set-block">
+        <h3>{t('set.material')}</h3>
+        <p className="set-desc">{t('set.materialDesc')}</p>
         <div className="material-grid">
           {MATERIALS.map((m) => (
             <button
@@ -59,8 +76,8 @@ function AppearanceSection() {
                 <span className="mp-bar" />
                 <span className="mp-bar short" />
               </div>
-              <div className="material-name">{m.label}</div>
-              <div className="material-hint">{m.hint}</div>
+              <div className="material-name">{t(`mat.${m.id}`)}</div>
+              <div className="material-hint">{t(`mat.${m.id}.hint`)}</div>
             </button>
           ))}
         </div>
@@ -72,16 +89,16 @@ function AppearanceSection() {
             disabled={!nativeApi}
           />
           <span>
-            窗口级原生亚克力（Windows 11）
-            {!nativeApi && <em> · 仅客户端可用</em>}
-            {nativeApi && <em> · 切换后窗口将重载以应用原生材质</em>}
+            {t('set.nativeAcrylic')}
+            {!nativeApi && <em>{t('set.nativeAcrylicClient')}</em>}
+            {nativeApi && <em>{t('set.nativeAcrylicReload')}</em>}
           </span>
         </label>
       </section>
 
       <section className="set-block">
-        <h3>首页展示动效</h3>
-        <p className="set-desc">书籍卡片的入场动画，切换后立即重播一遍。</p>
+        <h3>{t('set.anim')}</h3>
+        <p className="set-desc">{t('set.animDesc')}</p>
         <div className="anim-grid">
           {ANIM_MODES.map((m) => (
             <button
@@ -89,15 +106,11 @@ function AppearanceSection() {
               className={`anim-card${settings.animMode === m.id ? ' active' : ''}`}
               onClick={() => void setSettings({ animMode: m.id })}
             >
-              <span className="anim-name">{m.label}</span>
-              <span className="anim-hint">{m.hint}</span>
+              <span className="anim-name">{t(`anim.${m.id}`)}</span>
+              <span className="anim-hint">{t(`anim.${m.id}.hint`)}</span>
             </button>
           ))}
         </div>
-      </section>
-
-      <section className="set-block">
-        <p className="set-desc">封面尺寸调节已迁移至书架页统计栏右侧（小 / 中 / 大）。</p>
       </section>
     </>
   )
@@ -147,7 +160,6 @@ function WallpaperSection() {
           unit="%"
           onChange={(v) => void setSettings({ contentOpacity: v })}
         />
-        <p className="set-desc">背景透明度控制书架区域衬底的不透明度：数值越低壁纸越清晰，越高文字对比越强（浅色模式默认已调低）。</p>
         <SliderField
           label="Dock 栏透明度"
           value={settings.dockOpacity}
@@ -157,9 +169,6 @@ function WallpaperSection() {
           unit="%"
           onChange={(v) => void setSettings({ dockOpacity: v })}
         />
-        <p className="set-desc">
-          Dock 栏（侧栏 + 顶栏）为半透明毛玻璃底纹，透明度默认显著低于书架栏，壁纸在所有界面层级均可见；该滑块也可在顶栏「壁纸」弹层中调节。
-        </p>
       </section>
 
       <section className="set-block">
@@ -237,28 +246,17 @@ function WallpaperSection() {
         <ul className="kv-list">
           <li>
             <span>JPEG / PNG / BMP</span>
-            <span>静态图片，全平台支持</span>
           </li>
           <li>
-            <span>WebP / AVIF</span>
-            <span>静态图片；动图能力格式，是否播放动画取决于文件本身是否含多帧</span>
-          </li>
-          <li>
-            <span>GIF</span>
-            <span>动图能力格式，是否播放动画取决于文件本身是否含多帧</span>
+            <span>WebP / AVIF / GIF</span>
           </li>
           <li>
             <span>HEIC / HEIF / TIFF</span>
-            <span>取决于本机解码能力，导入时自动探测，不支持将明确提示并取消导入</span>
           </li>
           <li>
             <span>MP4 / WebM / MOV</span>
-            <span>视频壁纸，自动静音循环播放</span>
           </li>
         </ul>
-        <p className="set-desc">
-          限制：单个文件不超过 100MB；极端长宽比图片在「覆盖/填充」下按容器裁切，「适应」下留白，「拉伸」允许形变，可在上方实时预览后选择。
-        </p>
       </section>
     </>
   )
@@ -822,6 +820,7 @@ function AboutSection() {
 
 export function SettingsPage() {
   const { ui, setUI } = useStore()
+  useLang()
   const active = SECTIONS.find((s) => s.id === ui.settingsSection) ?? SECTIONS[0]
 
   return (
@@ -838,7 +837,7 @@ export function SettingsPage() {
             )}
             <span className="set-nav-inner">
               <s.Icon size={15} />
-              <span>{s.label}</span>
+              <span>{t(s.key)}</span>
             </span>
           </button>
         ))}

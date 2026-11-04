@@ -21,6 +21,14 @@ import type { EpubSelection } from './formats/EpubReader'
 import { clampExcerpt, makeAnnotationId, cfiStartOf } from '@/lib/annotations'
 import { DEFAULT_PREFS, FONT_STACK, loadPrefs, savePrefs, themeColors, type ReaderPrefs } from './reader-prefs'
 import { perfMark, perfRead } from '@/lib/perf'
+import {
+  DEFAULT_TRANSLATE_CONFIG,
+  TRANS_TARGETS,
+  loadTranslateConfig,
+  saveTranslateConfig,
+  translateText,
+  type TranslateConfig,
+} from '@/lib/translate'
 import './reader.css'
 import { NumberField } from '@/components/NumberFields'
 import { useAutoAnimate } from '@formkit/auto-animate/react'
@@ -50,6 +58,15 @@ interface NotePop {
   top: number
   /** 新建「整页笔记」时的锚点（无选区） */
   locator?: Locator
+}
+
+/** 翻译结果气泡状态 */
+interface TransPop {
+  quote: string
+  x: number
+  top: number
+  status: 'loading' | 'ok' | 'err'
+  result: string
 }
 
 // 已支持的容器格式（AZW3/AZW/MOBI/CBR/DOC）由主进程转换，这里只剩真正认不出的类型
@@ -90,6 +107,41 @@ export function ReaderApp() {
   const [annoOpen, setAnnoOpen] = useState(false)
   const [sel, setSel] = useState<PendingSel | null>(null)
   const [notePop, setNotePop] = useState<NotePop | null>(null)
+
+  /* ---------- 大模型翻译 ---------- */
+  const [transCfg, setTransCfg] = useState<TranslateConfig>(DEFAULT_TRANSLATE_CONFIG)
+  const [transPop, setTransPop] = useState<TransPop | null>(null)
+  const transAbort = useRef<AbortController | null>(null)
+  useEffect(() => {
+    void loadTranslateConfig().then(setTransCfg)
+  }, [])
+  const updateTransCfg = (patch: Partial<TranslateConfig>) => {
+    setTransCfg((c) => {
+      const next = { ...c, ...patch }
+      void saveTranslateConfig(next)
+      return next
+    })
+  }
+  /** 翻译当前选区：结果浮在选区上方，可复制、可中断 */
+  const translateSel = () => {
+    if (!sel) return
+    const quote = sel.text
+    const pop: TransPop = { quote, x: sel.x, top: Math.max(150, sel.top - 6), status: 'loading', result: '' }
+    setTransPop(pop)
+    transAbort.current?.abort()
+    const ctrl = new AbortController()
+    transAbort.current = ctrl
+    void translateText(quote, transCfg, ctrl.signal)
+      .then((out) => setTransPop((p) => (p && p.quote === quote ? { ...p, status: 'ok', result: out } : p)))
+      .catch((e: unknown) => {
+        if (e instanceof DOMException && e.name === 'AbortError') return
+        setTransPop((p) => (p && p.quote === quote ? { ...p, status: 'err', result: String((e as Error)?.message ?? e) } : p))
+      })
+  }
+  const closeTransPop = () => {
+    transAbort.current?.abort()
+    setTransPop(null)
+  }
 
   const saverRef = useRef<ReturnType<typeof createLocatorSaver> | null>(null)
   const hideTimer = useRef<number | null>(null)
@@ -918,6 +970,49 @@ export function ReaderApp() {
               ))}
             </div>
           </div>
+
+          <div className="rs-section">
+            <div className="rs-section-title">翻译（大模型 API）</div>
+            <div className="rs-row">
+              <span className="rs-label">译入</span>
+              <div className="rs-seg trans-lang-seg">
+                {TRANS_TARGETS.map((t) => (
+                  <button
+                    key={t.id}
+                    className={transCfg.target === t.id ? 'active' : ''}
+                    onClick={() => updateTransCfg({ target: t.id })}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <input
+              className="rs-input"
+              value={transCfg.baseUrl}
+              placeholder="Base URL（OpenAI 兼容）"
+              spellCheck={false}
+              onChange={(e) => updateTransCfg({ baseUrl: e.target.value })}
+            />
+            <input
+              className="rs-input"
+              type="password"
+              value={transCfg.apiKey}
+              placeholder="API Key"
+              autoComplete="off"
+              onChange={(e) => updateTransCfg({ apiKey: e.target.value })}
+            />
+            <input
+              className="rs-input"
+              value={transCfg.model}
+              placeholder="模型名，如 gpt-4o-mini"
+              spellCheck={false}
+              onChange={(e) => updateTransCfg({ model: e.target.value })}
+            />
+            <div className="rs-hint">
+              选中正文 → 浮条「翻译」即可调用；Key 只保存在本机 IndexedDB，不经任何中间服务器。
+            </div>
+          </div>
         </div>
       )}
 
@@ -1038,6 +1133,9 @@ export function ReaderApp() {
             />
           ))}
           <span className="sel-sep" />
+          <button className="sel-btn" onClick={translateSel}>
+            翻译
+          </button>
           <button
             className="sel-btn"
             onClick={() => {
@@ -1096,6 +1194,29 @@ export function ReaderApp() {
             </button>
             <button className="rb" onClick={() => void saveNote()}>
               保存
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 翻译结果气泡：原文 + 译文，可复制 */}
+      {transPop && (
+        <div className="note-pop trans-pop" style={{ left: transPop.x, top: transPop.top }}>
+          <div className="note-pop-quote">{transPop.quote}</div>
+          <div className={`trans-result${transPop.status === 'err' ? ' err' : ''}`}>
+            {transPop.status === 'loading' ? '翻译中…' : transPop.result}
+          </div>
+          <div className="note-pop-actions">
+            <span className="trans-target">
+              {TRANS_TARGETS.find((t) => t.id === transCfg.target)?.label}
+            </span>
+            {transPop.status === 'ok' && (
+              <button className="rb" onClick={() => void navigator.clipboard.writeText(transPop.result)}>
+                复制
+              </button>
+            )}
+            <button className="rb" onClick={closeTransPop}>
+              关闭
             </button>
           </div>
         </div>

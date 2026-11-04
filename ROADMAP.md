@@ -385,3 +385,13 @@ fixtures 立刻报 `epub FAIL 颜色 1 色`。CSP 生效性用 `securitypolicyvi
 - `MOYU_TEST_STYLE` 扩展：外壳贴边、数值行（滑块+步进齐备）、数字框输入/步进真实生效、内置壁纸可渲染、弹层不溢出 → `STYLE_OK`
 - 单测新增 `plainParagraphs` 7 例（三种排版约定、折行拼接、西文补空格），共 **138 例**
 - 回归：fixtures 8/8、DROP/ANNOT(txt+epub)/BACKUP/SHELF/CRASH/BUNDLE 全绿，位置恢复 txt 600→600、pdf 2062→2062、cbz 1769→1769、EPUB 章内 OK，28 状态截图 `NO_RENDER_ERRORS`
+
+### 追加：窗口按钮贴边与菜单栏（TOPBAR_OK）
+
+用户坚持「关闭/最小化/最大化那一排不在最顶部」。用真实 `createWindow` 路径新增 `MOYU_TEST_TOPBAR`，
+在 普通 / 最大化 / 还原 / 改尺寸 / 最小宽度 五种状态下量 `getBounds` vs `getContentBounds`、
+`isMenuBarVisible`、`topbar.top`、`.wbtn.top`：客户区始终从窗口原点开始（`gapTop=0`），
+但 `.wbtn` 只从 y=9 起 —— 视觉上确实"没贴顶"。
+
+两处改动：① `.topbar-actions` + `.win-controls` 双向 stretch、`.wbtn` 撑满 52px 并抵到右缘，
+关闭键保留右上圆角；② `Menu.setApplicationMenu(null)` 摘掉默认菜单（个别环境会画成 20~26px 横带）。

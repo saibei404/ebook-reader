@@ -26,16 +26,21 @@ fi
 echo "== 2/2 探测可用出口 =="
 candidates="7897 7890 10809 1080 53433"
 extra=$(netstat -ano 2>/dev/null | grep LISTENING | grep -oE "127\.0\.0\.1:[0-9]+" | cut -d: -f2 | sort -u)
-for p in $candidates $extra; do
-  code=$(curl -x "http://127.0.0.1:$p" -sS -o /dev/null -m 8 -w "%{http_code}" https://github.com/ 2>/dev/null || echo "000")
-  if [ "$code" = "200" ] || [ "$code" = "301" ]; then
-    echo "-- 尝试端口 $p"
-    if try_push "http://127.0.0.1:$p"; then
-      echo "PUSH_OK (port $p)"
-      # 记住这次可用的端口，下次先用
-      git config http.proxy "http://127.0.0.1:$p"
-      exit 0
-    fi
+# 并行探测：本机常有十几个监听端口，串行 8s 超时加起来会超过调用方的 timeout，
+# 结果还没试到可用端口就被杀了（表现为"没有可用出口"，其实是没扫完）。
+avail=$(printf '%s\n%s\n' "$candidates" "$extra" \
+  | grep -E '^[0-9]+$' | sort -u \
+  | xargs -P 10 -I{} sh -c 'c=$(curl -x "http://127.0.0.1:{}" -sS -o /dev/null -m 6 -w "%{http_code}" https://github.com/ 2>/dev/null); echo "$c {}"' \
+  | awk '$1=="200" || $1=="301" {print $2}')
+echo "-- 可用端口: $(echo "$avail" | tr '\n' ' ')"
+
+for p in $avail; do
+  echo "-- 尝试端口 $p"
+  if try_push "http://127.0.0.1:$p"; then
+    echo "PUSH_OK (port $p)"
+    # 记住这次可用的端口，下次先用
+    git config http.proxy "http://127.0.0.1:$p"
+    exit 0
   fi
 done
 

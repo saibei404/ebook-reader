@@ -342,10 +342,40 @@ export const useStore = create<Store>((setState, getState) => ({
   },
   hydrate: async () => {
     const now = Date.now()
-    let books = await allBooks()
+
+    /**
+     * 首屏要读的东西彼此独立，全部先发出去再统一 await。
+     * 原来是 8 个串行 await（books / seeded / covers / shelves / webdav / baidu / settings / 原生设置），
+     * 冷启动时每次 IndexedDB 往返 20~80ms、跨进程 IPC 再各加一跳，串起来就是明显的白屏等待。
+     */
+    const booksP = allBooks()
+    const seededP = getKV<boolean>('seeded')
+    const coversP = allCovers().catch(() => [] as Awaited<ReturnType<typeof allCovers>>)
+    const shelvesP = getKV<Shelf[]>('shelves')
+    const webdavP = getKV<{ url: string; username: string; password: string } | null>('webdav-config')
+    const baiduP = getKV<{ appKey: string; appSecret: string } | null>('baidu-config')
+    const settingsKvP = getKV<Settings>('settings')
+    const wallpaperP = (async () => {
+      try {
+        const broken = await pruneBrokenWallpapers()
+        if (broken.length) console.warn('[hydrate] 已清理损坏壁纸记录:', broken)
+        return await allWallpapers()
+      } catch (e) {
+        console.warn('[hydrate] 壁纸读取失败，跳过:', e)
+        return [] as Awaited<ReturnType<typeof allWallpapers>>
+      }
+    })()
+    const nativeSettingsP = nativeApi
+      ? nativeApi.getSettings().catch(() => ({}) as Record<string, unknown>)
+      : Promise.resolve({} as Record<string, unknown>)
+    const baiduAuthP = nativeApi
+      ? nativeApi.baiduAuthStatus().catch(() => ({ authorized: false, account: '' }))
+      : Promise.resolve({ authorized: false, account: '' })
+
+    let books = await booksP
 
     // 种子数据只在「首次启动」播一次：用户删光书籍后重启不应复活示例书
-    const seeded = await getKV<boolean>('seeded')
+    const seeded = await seededP
     const procCovers: Record<string, string> = {}
     if (books.length === 0 && !seeded) {
       books = seedBooks(now)
@@ -367,26 +397,18 @@ export const useStore = create<Store>((setState, getState) => ({
      * 重启后全部消失，退回书名封面」，数据其实还在库里，只是没人去读。
      */
     const covers: Record<string, string> = {}
+    const coverRecs = await coversP
     try {
-      const recs = await allCovers()
       const need = new Set(books.map((b) => b.coverId).filter(Boolean) as string[])
-      for (const r of recs) {
+      for (const r of coverRecs) {
         if (need.has(r.id)) covers[r.id] = r.dataUrl
       }
     } catch {
       /* 封面表异常不应阻断启动 */
     }
 
-    // 壁纸记录容错：损坏记录（blob 丢失/为空）清理掉，避免 createObjectURL 抛错导致启动卡死
-    let wpRecs: Awaited<ReturnType<typeof allWallpapers>> = []
-    try {
-      const broken = await pruneBrokenWallpapers()
-      if (broken.length) console.warn('[hydrate] 已清理损坏壁纸记录:', broken)
-      wpRecs = await allWallpapers()
-    } catch (e) {
-      console.warn('[hydrate] 壁纸读取失败，跳过:', e)
-    }
-    // 内置壁纸（浅/深）永远排在最前，且不依赖数据库：清空数据后它们仍然可用
+    const wpRecs = await wallpaperP
+    // 内置壁纸（浅/深）永远排在最前，且不依赖数据库：清空数据后依然可用
     const wallpapers: WallpaperItem[] = [...BUILTIN_WALLPAPERS]
     for (const w of wpRecs) {
       try {
@@ -403,7 +425,7 @@ export const useStore = create<Store>((setState, getState) => ({
     }
 
     // 分组：读 kv 并与 books 的 shelfId 对齐（外部导入/旧数据可能只有一边）
-    const rawShelves = (await getKV<Shelf[]>('shelves')) ?? []
+    const rawShelves = (await shelvesP) ?? []
     const bookIds = new Set(books.map((b) => b.id))
     let shelfDirty = false
     const shelves: Shelf[] = rawShelves
@@ -430,22 +452,15 @@ export const useStore = create<Store>((setState, getState) => ({
     }
     if (shelfDirty) void setKV('shelves', shelves)
 
-    const webdavConfig = await getKV<{ url: string; username: string; password: string } | null>('webdav-config')
-    const baiduConfig = await getKV<{ appKey: string; appSecret: string } | null>('baidu-config')
-    let baiduAuth = { authorized: false, account: '' }
-    if (nativeApi) {
-      try {
-        const st = await nativeApi.baiduAuthStatus()
-        baiduAuth = { authorized: st.authorized, account: st.account }
-      } catch {
-        /* ignore */
-      }
-    }
+    const webdavConfig = await webdavP
+    const baiduConfig = await baiduP
+    const baiduSt = await baiduAuthP
+    const baiduAuth = { authorized: !!baiduSt.authorized, account: baiduSt.account ?? '' }
 
-    let settings = { ...DEFAULT_SETTINGS, ...(await getKV<Settings>('settings')) }
+    let settings = { ...DEFAULT_SETTINGS, ...(await settingsKvP) }
     if (nativeApi) {
       try {
-        const ns = await nativeApi.getSettings()
+        const ns = await nativeSettingsP
         settings = {
           ...settings,
           ...(ns.theme ? { theme: ns.theme as Settings['theme'] } : {}),

@@ -2,7 +2,7 @@
 
 本地优先的跨平台电子阅读器——七种格式可读（TXT/MD/EPUB/PDF/FB2/DOCX/CBZ），带位置记忆、书签、高亮与笔记、全篇搜索、备份导入导出，以及「摸鱼」场景必备的老板键与托盘常驻。
 
-> 当前基线 **v32（0.9.2）**：七格式阅读 + 位置记忆 + 书签/高亮/笔记 + 全篇搜索 + 备份导入 + 书架分组；
+> 当前基线 **v32（0.9.3）**：七格式阅读 + 位置记忆 + 书签/高亮/笔记 + 全篇搜索 + 备份导入 + 书架分组；
 > v31 补齐错误兜底、CSP、首屏拆分与拖拽导入，v32 重做排版与设置交互（数值步进/输入、主题双向同步、内置壁纸、TXT 正文排版）。单测 138 例。
 
 ## 快速开始
@@ -14,7 +14,7 @@ npm run build        # 构建 main / preload / renderer
 npm run shot         # 自动化视觉测试：30 个状态的整屏截图到 screenshots/（窗口图在 screenshots/window/）
 npm test             # 单元测试（vitest，138 用例）
 npm run test:cov     # 单测 + 覆盖率（核心纯函数 > 80%）
-npm run dist:portable# 打包免安装 exe 到 release/
+npm run dist:portable# 打包免安装 exe；另出 zip（解压即用，启动比便携版快）
 npm run dev:web      # 仅以前端方式预览（无原生能力）
 ```
 

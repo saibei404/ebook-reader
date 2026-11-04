@@ -81,6 +81,8 @@ export interface MoyuAPI {
     stack?: string
     extra?: unknown
   }): void
+  /** 阅读窗口把当前书的元信息报给主进程：崩溃弹窗/日志要能说出是哪本书 */
+  reportReaderMeta(meta: { id: string; title: string; format: string; size: number }): void
   /** 导出诊断报告（环境信息 + 最近日志），弹系统保存框 */
   exportDiagnostics(): Promise<{ ok: boolean; path?: string; canceled?: boolean; error?: string }>
   /** 兜底页用：关闭发起请求的窗口 */

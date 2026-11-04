@@ -1,6 +1,6 @@
 {
   "name": "moyu-reader",
-  "version": "0.9.2",
+  "version": "0.9.3",
   "description": "墨鱼阅读器 —— 本地优先的跨平台电子书阅读器（Electron + React + TypeScript）",
   "author": "saibei404",
   "license": "MIT",
@@ -59,7 +59,8 @@
     ],
     "win": {
       "target": [
-        "portable"
+        "portable",
+        "zip"
       ],
       "icon": "resources/icon.ico",
       "signAndEditExecutable": true

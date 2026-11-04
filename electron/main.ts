@@ -177,6 +177,12 @@ function aliveReader(): BrowserWindow | null {
  * 使用独立 HTML 入口（reader.html），epub.js / pdf.js 仅在此窗口按需加载，
  * 主窗口包体与内存零负担。
  */
+/** 阅读窗口最近一次上报的书目信息（崩溃弹窗/日志要能说出是哪本书） */
+let readerBookMeta: { id: string; title: string; format: string; size: number } | null = null
+/** 连续崩溃次数：第一次自动重开，第二次才认为"这个环境/这本书打不开" */
+let readerCrashStreak = 0
+let readerSurviveTimer: NodeJS.Timeout | null = null
+
 function openReaderWin(bookId: string, jump?: string): void {
   const search = `?bookId=${encodeURIComponent(bookId)}${jump ? `&jump=${encodeURIComponent(jump)}` : ''}`
   const existing = aliveReader()
@@ -216,6 +222,7 @@ function openReaderWin(bookId: string, jump?: string): void {
       },
     })
     readerWin = win
+    readerBookMeta = null
 
     win.once('ready-to-show', () => {
       win.maximize()
@@ -223,9 +230,26 @@ function openReaderWin(bookId: string, jump?: string): void {
     })
     win.on('closed', () => {
       readerWin = null
+      if (readerSurviveTimer) {
+        clearTimeout(readerSurviveTimer)
+        readerSurviveTimer = null
+      }
+    })
+    // 撑过 8s 没崩 → 视为这次打开成功，崩溃计数清零（下次崩了还给自动重开的机会）
+    win.webContents.once('did-finish-load', () => {
+      if (readerSurviveTimer) clearTimeout(readerSurviveTimer)
+      readerSurviveTimer = setTimeout(() => {
+        readerCrashStreak = 0
+        readerSurviveTimer = null
+      }, 8000)
     })
     win.webContents.on('render-process-gone', (_e, details) => {
-      logCrash(`reader render-process-gone: ${JSON.stringify(details)}`)
+      readerCrashStreak += 1
+      const meta = readerBookMeta
+      logCrash(
+        `reader render-process-gone #${readerCrashStreak}: ${JSON.stringify(details)}` +
+          ` book=${bookId}${meta ? ` title=${meta.title} format=${meta.format} size=${meta.size}` : ''}`
+      )
       // 阅读窗口崩溃不应拖垮主窗口：仅提示并销毁残留
       if (!win.isDestroyed()) win.destroy()
       readerWin = null
@@ -233,6 +257,39 @@ function openReaderWin(bookId: string, jump?: string): void {
       w?.show()
       w?.focus()
       w?.webContents.send('moyu:reader-crashed')
+
+      // 第一次崩：直接重开一次。GPU/合成器抖动、驱动偶发重置都属这一类，重开基本就好。
+      if (readerCrashStreak === 1) {
+        setTimeout(() => {
+          if (!aliveReader()) openReaderWin(bookId, jump)
+        }, 600)
+        return
+      }
+
+      // 连续崩：说明是这本书或这台机器的图形栈，给用户可执行的出路，而不是继续静默重试
+      const detail = meta
+        ? `书籍：${meta.title}（${meta.format.toUpperCase()}，${(meta.size / 1024 / 1024).toFixed(1)}MB）`
+        : `书籍 ID：${bookId}`
+      const opts: Electron.MessageBoxOptions = {
+        type: 'error',
+        title: '阅读窗口连续崩溃',
+        message: '阅读窗口已经连续两次异常退出',
+        detail: `${detail}\n\n日志里记录了崩溃码，可点「导出诊断」发给开发者。\n如果每次都崩，多半是显卡驱动/硬件加速的问题，可以先用兼容模式（关闭硬件加速）打开。`,
+        buttons: ['以兼容模式重启', '再试一次', '取消'],
+        defaultId: 0,
+        cancelId: 2,
+        noLink: true,
+      }
+      void (w ? dialog.showMessageBox(w, opts) : dialog.showMessageBox(opts)).then((r) => {
+        if (r.response === 0) {
+          readerCrashStreak = 0
+          app.relaunch({ args: [...process.argv.slice(1), '--disable-gpu'] })
+          app.exit(0)
+        } else if (r.response === 1) {
+          readerCrashStreak = 0
+          openReaderWin(bookId, jump)
+        }
+      })
     })
 
     const base = process.env.ELECTRON_RENDERER_URL
@@ -598,6 +655,19 @@ function registerIPC(): void {
     const level = p.level === 'warn' ? 'warn' : p.level === 'info' ? 'info' : 'error'
     const extra = p.extra === undefined ? undefined : JSON.stringify(p.extra).slice(0, 600)
     log(level, scope, message, stack ? `${stack}${extra ? ` | ${extra}` : ''}` : extra)
+  })
+
+  /** 阅读窗口上报当前书：日志里能对上"哪本书打不开"，崩溃弹窗也靠它说人话 */
+  ipcMain.on('moyu:reader-meta', (_e, payload: unknown) => {
+    const m = (payload ?? {}) as { id?: string; title?: string; format?: string; size?: number }
+    if (!m.id) return
+    readerBookMeta = {
+      id: String(m.id),
+      title: String(m.title ?? '').slice(0, 120),
+      format: String(m.format ?? '').slice(0, 12),
+      size: Number(m.size ?? 0) || 0,
+    }
+    log('info', 'reader:open', `${readerBookMeta.title} [${readerBookMeta.format}] ${(readerBookMeta.size / 1024 / 1024).toFixed(2)}MB`)
   })
 
   /** 打开系统保存框，把环境信息 + 最近日志写成一份可直接发来的诊断报告 */
@@ -3021,6 +3091,173 @@ async function runDbCheck(): Promise<void> {
   app.exit(0)
 }
 
+// ---------------- 打开延迟自检（MOYU_TEST_OPENLATENCY=<bookPath>） ----------------
+/**
+ * 「打开一本书到底等了多久」——走真实链路（主窗口写库 → openReaderWin → 正文容器出现）。
+ * 分段计时：建窗 / 首帧可见（ready-to-show）/ 容器挂载 / 正文可读。
+ * 6s 守卫（EpubReader）会误判慢机器上的大书，这个用例用来盯住那条线。
+ */
+async function runOpenLatencyTest(bookPath: string): Promise<void> {
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+  const out: string[] = []
+  const main = createWindow()
+  mainWin = main
+  const t0 = Date.now()
+  try {
+    await main.loadFile(path.join(__dirname, '../renderer/index.html'), { search: '?theme=dark' })
+    await sleep(2200)
+    const ext = path.extname(bookPath).slice(1).toLowerCase()
+    let size = 0
+    try {
+      size = fs.statSync(bookPath).size
+    } catch {
+      /* ignore */
+    }
+    await main.webContents.executeJavaScript(`(async () => {
+      const req = indexedDB.open('moyu-reader')
+      const db = await new Promise((res, rej) => { req.onsuccess = () => res(req.result); req.onerror = () => rej(req.error) })
+      const tx = db.transaction('books', 'readwrite')
+      tx.objectStore('books').put({
+        id: 'lat-book', title: '延迟验证书', author: '测试', format: ${JSON.stringify(ext)},
+        addedAt: Date.now(), lastReadAt: null, progress: 0, locator: null,
+        coverId: null, coverSeed: 7, shelfId: null, size: ${size},
+        sourcePath: ${JSON.stringify(bookPath)}, description: '',
+      })
+      await new Promise((res, rej) => { tx.oncomplete = res; tx.onerror = () => rej(tx.error) })
+      db.close()
+      return 'seeded'
+    })()`)
+
+    const tClick = Date.now() - t0
+    openReaderWin('lat-book')
+    const rw = aliveReader()
+    let tShown = -1
+    if (rw) rw.once('ready-to-show', () => {
+      tShown = Date.now() - t0
+    })
+
+    let tContainer = -1
+    let tText = -1
+    for (let i = 0; i < 200; i++) {
+      const w = aliveReader()
+      if (!w) break
+      let probe: { c: boolean; t: number } = { c: false, t: 0 }
+      try {
+        probe = (await w.webContents.executeJavaScript(`(() => ({
+          c: !!document.querySelector('.text-scroll, .epub-host iframe, .pdf-scroll canvas, .comic-scroll img'),
+          t: (document.querySelector('.text-inner')?.innerText || '').length +
+             (document.querySelector('.epub-host iframe') ? 1 : 0) +
+             (document.querySelector('.pdf-scroll canvas') ? 1 : 0),
+        }))()`)) as { c: boolean; t: number }
+      } catch {
+        /* 崩溃/未就绪 */
+      }
+      const now = Date.now() - t0
+      if (probe.c && tContainer < 0) tContainer = now
+      if (probe.t > 0 && tText < 0) tText = now
+      if (tContainer > 0 && tText > 0) break
+      await sleep(100)
+      if (Date.now() - t0 > 25000) break
+    }
+    out.push(
+      `open ${JSON.stringify({ format: ext, size, tClick, tShown, tContainer, tText, crashed: !aliveReader() })}`
+    )
+    out.push(tContainer > 0 ? 'OPENLAT_OK' : 'OPENLAT_FAIL')
+  } catch (e) {
+    out.push(`ERROR ${String(e)}`)
+    out.push('OPENLAT_FAIL')
+  }
+  console.log('OPENLAT_TEST:')
+  for (const l of out) console.log('  ' + l)
+  writeTestResult('openlat', out)
+  app.exit(0)
+}
+
+// ---------------- 阅读窗口崩溃恢复自检（MOYU_TEST_READERCRASH=<bookPath>） ----------------
+/**
+ * 真把阅读窗口的渲染进程打崩（forcefullyCrashRenderer），验证：
+ * 1. 主窗口不会跟着挂；
+ * 2. 会自动重开一次并真的把书渲染出来（而不是留一个空白窗）。
+ */
+async function runReaderCrashTest(bookPath: string): Promise<void> {
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+  const out: string[] = []
+  const main = createWindow()
+  mainWin = main
+  try {
+    await main.loadFile(path.join(__dirname, '../renderer/index.html'), { search: '?theme=dark' })
+    await sleep(2200)
+    const ext = path.extname(bookPath).slice(1).toLowerCase()
+    let size = 0
+    try {
+      size = fs.statSync(bookPath).size
+    } catch {
+      /* ignore */
+    }
+    await main.webContents.executeJavaScript(`(async () => {
+      const req = indexedDB.open('moyu-reader')
+      const db = await new Promise((res, rej) => { req.onsuccess = () => res(req.result); req.onerror = () => rej(req.error) })
+      const tx = db.transaction('books', 'readwrite')
+      tx.objectStore('books').put({
+        id: 'crash-book', title: '崩溃恢复验证书', author: '测试', format: ${JSON.stringify(ext)},
+        addedAt: Date.now(), lastReadAt: null, progress: 0, locator: null,
+        coverId: null, coverSeed: 3, shelfId: null, size: ${size},
+        sourcePath: ${JSON.stringify(bookPath)}, description: '',
+      })
+      await new Promise((res, rej) => { tx.oncomplete = res; tx.onerror = () => rej(tx.error) })
+      db.close()
+    })()`)
+
+    const hasContent = async (w: BrowserWindow | null): Promise<boolean> => {
+      if (!w || w.isDestroyed()) return false
+      try {
+        return !!(await w.webContents.executeJavaScript(
+          `!!document.querySelector('.text-scroll, .epub-host iframe, .pdf-scroll canvas, .comic-scroll img')`
+        ))
+      } catch {
+        return false
+      }
+    }
+
+    openReaderWin('crash-book')
+    let first = aliveReader()
+    for (let i = 0; i < 80 && first; i++) {
+      if (await hasContent(first)) break
+      await sleep(150)
+      first = aliveReader()
+    }
+    const okFirst = await hasContent(first)
+    out.push(`before-crash content=${okFirst}`)
+
+    // 打崩渲染进程
+    first?.webContents.forcefullyCrashRenderer()
+    await sleep(1500)
+
+    let recovered: BrowserWindow | null = null
+    let okRecover = false
+    for (let i = 0; i < 100; i++) {
+      const w = aliveReader()
+      if (w && w !== first && (await hasContent(w))) {
+        recovered = w
+        okRecover = true
+        break
+      }
+      await sleep(200)
+    }
+    out.push(
+      `after-crash newWindow=${!!recovered} content=${okRecover} mainAlive=${!main.isDestroyed()}`
+    )
+    out.push(okFirst && okRecover && !main.isDestroyed() ? 'READERCRASH_OK' : 'READERCRASH_FAIL')
+  } catch (e) {
+    out.push(`ERROR ${String(e)}`)
+    out.push('READERCRASH_FAIL')
+  }
+  console.log('READERCRASH_TEST:')
+  for (const l of out) console.log('  ' + l)
+  writeTestResult('readercrash', out)
+  app.exit(0)
+}
+
 // ---------------- 跨窗口可见性自检（MOYU_TEST_CROSSWIN=<testpath>） ----------------
 /**
  * 验证真实链路：主窗口写入书架的书籍，阅读窗口能否读到。
@@ -3991,6 +4228,14 @@ if (!app.requestSingleInstanceLock() && !isShot) {
     }
     if (process.env.MOYU_TEST_CROSSWIN) {
       void runCrossWinTest(process.env.MOYU_TEST_CROSSWIN)
+      return
+    }
+    if (process.env.MOYU_TEST_OPENLATENCY) {
+      void runOpenLatencyTest(process.env.MOYU_TEST_OPENLATENCY)
+      return
+    }
+    if (process.env.MOYU_TEST_READERCRASH) {
+      void runReaderCrashTest(process.env.MOYU_TEST_READERCRASH)
       return
     }
     if (process.env.MOYU_TEST_READER) {

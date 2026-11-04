@@ -150,6 +150,13 @@ export function ReaderApp() {
         setBook(target)
         setPercent(target.locator?.percent ?? target.progress ?? 0)
         saverRef.current = createLocatorSaver(target.id)
+        // 告诉主进程"正在开哪本书"：崩溃时日志与提示才能指名道姓
+        nativeApi?.reportReaderMeta?.({
+          id: target.id,
+          title: target.title,
+          format: target.format,
+          size: target.size ?? 0,
+        })
 
         const fmt = target.format
         if (UNSUPPORTED[fmt]) {

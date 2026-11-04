@@ -40,3 +40,4 @@ test-fixtures/_verify/*.png
 # vitest 缓存/覆盖率产物
 .vitest-cache/
 coverage/
+*.zip

@@ -17,5 +17,8 @@
     "baseUrl": ".",
     "paths": { "@/*": ["src/*"] }
   },
-  "include": ["src", "electron", "scripts", "*.ts"]
+  "include": ["src", "electron", "scripts", "*.ts"],
+  // 预览脚本用 node --experimental-strip-types 直接跑，import 带 .ts 后缀
+  // （tsc 的 allowImportingTsExtensions 只对 noEmit 生效，这里用排除更省事）
+  "exclude": ["scripts/make-preview.ts"]
 }

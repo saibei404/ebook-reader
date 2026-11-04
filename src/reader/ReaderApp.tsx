@@ -13,7 +13,7 @@ import {
 } from '@/lib/db'
 import { nativeApi } from '@/lib/native'
 import { createLocatorSaver, applyAppTheme, subscribeTheme } from './locator'
-import { decodeText, splitPlainText, markdownToHtml, fb2ToChapters, chapterText, htmlToText, type Chapter } from './text-utils'
+import { decodeText, splitPlainText, markdownToHtml, fb2ToChapters, chapterText, htmlToText, htmlChapters, type Chapter } from './text-utils'
 import { chapterIndexAtOffset } from './chapter-window'
 import { docxToChapters } from './formats/docx'
 import { TextReader, type SelectionInfo } from './formats/TextReader'
@@ -49,10 +49,8 @@ interface NotePop {
   locator?: Locator
 }
 
+// 已支持的容器格式（AZW3/AZW/MOBI/CBR/DOC）由主进程转换，这里只剩真正认不出的类型
 const UNSUPPORTED: Record<string, string> = {
-  mobi: 'MOBI 为 Kindle 私有容器，当前版本不支持直接解析',
-  azw3: 'AZW3（KF8）为 Kindle 私有容器，当前版本不支持直接解析',
-  cbr: 'CBR 为 RAR 压缩包，需先转换为 CBZ',
   unknown: '无法识别该文件格式',
 }
 
@@ -63,6 +61,8 @@ export function ReaderApp() {
   const [data, setData] = useState<ArrayBuffer | null>(null)
   /** PDF 走 moyu-file:// 流式读取（大文件不进内存/IPC），其它格式用 data */
   const [sourceUrl, setSourceUrl] = useState('')
+  /** CBR：主进程解包后的图片序列（与 CBZ 的 data 路径二选一） */
+  const [comicImages, setComicImages] = useState<{ name: string; url: string }[] | null>(null)
   const [chapters, setChapters] = useState<Chapter[] | null>(null)
   const [prefs, setPrefs] = useState<ReaderPrefs>(DEFAULT_PREFS)
   const [percent, setPercent] = useState(0)
@@ -177,8 +177,9 @@ export function ReaderApp() {
 
         const res = await nativeApi.readBook(target.sourcePath)
         if (disposed) return
-        // PDF 只需要 url（流式）；其它格式必须拿到完整字节
-        const hasSource = !!res.data || !!res.url
+        // 三种来源：url（PDF 流式）/ buffer（CBZ、EPUB 等整包）/ 主进程已转换好的产物
+        const converted = res.mode === 'chapters' || res.mode === 'images' || res.mode === 'text'
+        const hasSource = !!res.data || !!res.url || converted
         if (!res.ok || !hasSource) {
           setError(res.error ?? '读取文件失败')
           setPhase('error')
@@ -186,6 +187,16 @@ export function ReaderApp() {
         }
         if (res.url) setSourceUrl(res.url)
         if (res.data) setData(res.data)
+
+        // 容器格式（AZW3/AZW/MOBI、CBR、DOC）由主进程转换成下面三种产物之一
+        if (res.mode === 'chapters' && res.chapters?.length) {
+          setChapters(htmlChapters(res.chapters))
+          if (res.meta?.title && !target.title) target.title = res.meta.title
+        } else if (res.mode === 'images' && res.images?.length) {
+          setComicImages(res.images)
+        } else if (res.mode === 'text' && typeof res.text === 'string') {
+          setChapters(splitPlainText(res.text))
+        }
 
         // 文本类格式在此完成预处理；EPUB/PDF/漫画交给各自渲染器
         if (res.data && fmt === 'docx') {
@@ -233,7 +244,7 @@ export function ReaderApp() {
   }, [])
 
   /* ---------- 搜索 ---------- */
-  const canSearch = !!book && (['txt', 'md', 'fb2', 'docx'] as string[]).includes(book.format)
+  const canSearch = !!book && (['txt', 'md', 'fb2', 'docx', 'azw3', 'azw', 'mobi', 'doc'] as string[]).includes(book.format)
 
   const searchResults = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -929,9 +940,9 @@ export function ReaderApp() {
           </div>
         )}
         {/* PDF 只有 url（流式），其余格式有 data；两者有其一即可渲染正文 */}
-        {phase === 'ready' && book && (data || sourceUrl) && (
+        {phase === 'ready' && book && (data || sourceUrl || comicImages || chapters) && (
           <>
-            {(fmt === 'txt' || fmt === 'md' || fmt === 'fb2' || fmt === 'docx') && chapters && (
+            {['txt', 'md', 'fb2', 'docx', 'azw3', 'azw', 'mobi', 'doc'].includes(fmt) && chapters && (
               <TextReader
                 key={book.id}
                 chapters={chapters}
@@ -984,10 +995,11 @@ export function ReaderApp() {
                 />
               </Suspense>
             )}
-            {(fmt === 'cbz' || fmt === 'cbr') && data && (
+            {(fmt === 'cbz' || fmt === 'cbr') && (data || comicImages) && (
               <Suspense fallback={<div className="reader-state">正在解包漫画…</div>}>
                 <ComicReader
-                  data={data}
+                  data={data ?? undefined}
+                  images={comicImages ?? undefined}
                   initialLocator={startLocator ?? book.locator ?? null}
                   onLocate={onLocate}
                   onInfo={setPagesInfo}

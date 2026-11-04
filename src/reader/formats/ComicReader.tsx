@@ -3,7 +3,10 @@ import { unzipSync } from 'fflate'
 import type { Locator } from '@/types/book'
 
 interface Props {
-  data: ArrayBuffer
+  /** CBZ：压缩包字节，组件内用 fflate 解包 */
+  data?: ArrayBuffer
+  /** CBR：主进程已解好图片并落盘，这里直接给 URL（可能是 moyu-file://） */
+  images?: { name: string; url: string }[]
   initialLocator: Locator | null
   onLocate: (loc: Locator) => void
   onError: (msg: string) => void
@@ -18,7 +21,7 @@ const IMG_RE = /\.(jpe?g|png|webp|gif|avif|bmp)$/i
  * - 图片按文件名自然排序（避免 10 排在 2 前面）；
  * - 位置：locator.kind='index'（0-based 图片序号）。
  */
-export function ComicReader({ data, initialLocator, onLocate, onError, onInfo }: Props) {
+export function ComicReader({ data, images, initialLocator, onLocate, onError, onInfo }: Props) {
   const [urls, setUrls] = useState<{ name: string; url: string }[]>([])
   const scrollRef = useRef<HTMLDivElement>(null)
   const pageRefs = useRef<(HTMLImageElement | null)[]>([])
@@ -27,6 +30,16 @@ export function ComicReader({ data, initialLocator, onLocate, onError, onInfo }:
 
   useEffect(() => {
     let disposed = false
+    // CBR 走主进程解包：图片地址已经就绪，不做二次解压，也不接管 URL 生命周期
+    if (images?.length) {
+      setUrls(images)
+      onInfo({ pages: images.length })
+      restored.current = false
+      return () => {
+        disposed = true
+      }
+    }
+    if (!data) return
     try {
       const files = unzipSync(new Uint8Array(data))
       const names = Object.keys(files)
@@ -47,7 +60,7 @@ export function ComicReader({ data, initialLocator, onLocate, onError, onInfo }:
         onInfo({ pages: list.length })
       }
     } catch (e) {
-      onError(`漫画解包失败：${String((e as Error)?.message ?? e)}（CBR 为 RAR 格式，暂不支持，请转成 CBZ）`)
+      onError(`漫画解包失败：${String((e as Error)?.message ?? e)}（CBZ/CBR 需为 ZIP 或 RAR 压缩包）`)
     }
     return () => {
       disposed = true
@@ -55,7 +68,7 @@ export function ComicReader({ data, initialLocator, onLocate, onError, onInfo }:
       objectUrls.current = []
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data])
+  }, [data, images])
 
   // 恢复页码：图片未加载时元素无高度，scrollIntoView 会失效，因此按帧重试至就位
   useEffect(() => {

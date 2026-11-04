@@ -4,6 +4,7 @@ import path from 'node:path'
 import { Readable } from 'node:stream'
 import { log, logError, logFilePath, readRecentLogs, environmentSnapshot } from './logger'
 import { davList, davDownload } from './netpan'
+import { convertCbr, convertDoc, convertMobi, convDir } from './convert'
 import {
   baiduStartAuth,
   baiduPollAuth,
@@ -556,6 +557,22 @@ function registerIPC(): void {
       const ext = path.extname(p).slice(1).toLowerCase()
       if (ext === 'pdf') {
         return { ok: true, mode: 'url', url: toBookUrl(p), size: st.size, name: path.basename(p) }
+      }
+
+      // 容器类格式（AZW3/AZW/MOBI、CBR、DOC）在主进程解析成管线认识的产物，
+      // 渲染层不再关心二进制结构；缓存目录按「路径+大小+mtime」做键，重复打开不重解。
+      if (ext === 'azw3' || ext === 'azw' || ext === 'mobi' || ext === 'cbr' || ext === 'doc') {
+        if (st.size > 300 * 1024 * 1024) {
+          return {
+            ok: false,
+            error: `文件过大（${(st.size / 1024 / 1024).toFixed(0)}MB），${ext.toUpperCase()} 当前上限 300MB`,
+          }
+        }
+        const root = path.join(app.getPath('userData'), 'conv')
+        const dir = convDir(root, p)
+        if (ext === 'doc') return await convertDoc(p)
+        if (ext === 'cbr') return await convertCbr(p, dir, toBookUrl)
+        return await convertMobi(p, path.join(dir, 'res'), toBookUrl)
       }
 
       const LIMIT = 300 * 1024 * 1024

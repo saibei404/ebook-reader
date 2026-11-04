@@ -1,8 +1,8 @@
 # 墨鱼阅读器 · Moyu Reader
 
-本地优先的跨平台电子阅读器——七种格式可读（TXT/MD/EPUB/PDF/FB2/DOCX/CBZ），带位置记忆、书签、高亮与笔记、全篇搜索、备份导入导出，以及「摸鱼」场景必备的老板键与托盘常驻。
+本地优先的跨平台电子阅读器——十一种格式可读（TXT/MD/EPUB/PDF/FB2/DOCX/DOC/CBZ/CBR/AZW3/AZW/MOBI），带位置记忆、书签、高亮与笔记、全篇搜索、备份导入导出，以及「摸鱼」场景必备的老板键与托盘常驻。
 
-> 当前基线 **v32（0.9.3）**：七格式阅读 + 位置记忆 + 书签/高亮/笔记 + 全篇搜索 + 备份导入 + 书架分组；
+> 当前基线 **v33（0.9.4）**：十一种格式阅读（新增 DOC / CBR / AZW3 / AZW / MOBI）+ 位置记忆 + 书签/高亮/笔记 + 全篇搜索 + 备份导入 + 书架分组；
 > v31 补齐错误兜底、CSP、首屏拆分与拖拽导入，v32 重做排版与设置交互（数值步进/输入、主题双向同步、内置壁纸、TXT 正文排版）。单测 138 例。
 
 ## 下载
@@ -46,7 +46,7 @@ npm run dev:web      # 仅以前端方式预览（无原生能力）
 | 展示动效 | 翻页（3D rotateY 弹簧）、淡入、缩放、滑入、堆叠，切换即重播；卡片 hover 浮起 + 指针跟随 3D 倾斜 + 高光 |
 | 封面 | 14 本种子书程序化生成封面（canvas 渐变 + 书名 + 格式徽标，3:4）；支持本地图片更换、随机生成、恢复默认 |
 | 壁纸 | 三套预设（深海/暮色/晨雾）+ 本地导入（JPEG/PNG/WebP/GIF/BMP/AVIF/HEIC/TIFF + MP4/WebM/MOV，导入时解码探测）；五种显示模式（覆盖/填充/居中/适应/拉伸）+ 缩放，实时预览自动保存；遮罩浓度可调 |
-| 阅读内核 | 独立全屏 `reader.html` 窗口；TXT/MD/EPUB/PDF/FB2/DOCX/CBZ 七格式；DOCX 保留 Word 的颜色/字号/对齐；TXT 按中文阅读规范排版（首行缩进 2em、段间距、两端对齐）；排版面板用步进器（− 值 +，可直接输入）；目录；Esc 退出 |
+| 阅读内核 | 独立全屏 `reader.html` 窗口；TXT/MD/EPUB/PDF/FB2/DOCX/DOC/CBZ/CBR/AZW3/AZW/MOBI 十一种；二进制容器（AZW3/AZW/MOBI/CBR/DOC）统一在主进程解析，渲染层复用文本/漫画管线；DOCX 保留 Word 的颜色/字号/对齐；TXT 按中文阅读规范排版（首行缩进 2em、段间距、两端对齐）；排版面板用步进器（− 值 +，可直接输入）；目录；Esc 退出 |
 | 位置记忆 | `locator` 四类定位（CFI/页码/字符偏移/图片序号）+ 退出前 flush；EPUB 精确到章内文字（视口顶部 CFI）；跨窗口 BroadcastChannel 同步书架圆环 |
 | 书架分组 | 自定义分组、拖拽归组与组内排序、折叠、重命名、删除；分组随备份 JSON 一起走 |
 | 壁纸 | 内置两张系统壁纸（偏白 / 偏深，矢量随包，不占体积）+ 本地图片/视频；覆盖/适应/拉伸/平铺/居中五种模式 |
@@ -95,7 +95,7 @@ ebook-reader/
 │   └── types/book.ts      # 契约层
 ├── tests/                 # vitest 单测（text-utils / locator / backup / annotations / db）
 ├── scripts/               # run.cjs / gen_* 样本生成 / probe-reader.cjs 诊断
-├── test-fixtures/         # 七格式排版验证样本
+├── test-fixtures/         # 各格式排版验证样本（含 doc/azw/cbr）
 ├── resources/             # 应用图标（ico/png/tray）
 └── screenshots/           # npm run shot 产出：整屏 30 张（含桌面，用来核对窗口边界）+ window/ 窗口内容 30 张
 ```

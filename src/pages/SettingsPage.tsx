@@ -268,7 +268,7 @@ function setWallpaperDimValue(n: number) {
   useStore.getState().setWallpaperDim(n)
 }
 
-const BOOK_EXTS = ['epub', 'pdf', 'mobi', 'azw3', 'fb2', 'txt', 'md', 'cbz', 'cbr']
+const BOOK_EXTS = ['epub', 'pdf', 'mobi', 'azw3', 'azw', 'fb2', 'txt', 'md', 'docx', 'doc', 'cbz', 'cbr']
 
 function NetpanSection() {
   const {
@@ -678,7 +678,7 @@ function DataSection() {
               const input = document.createElement('input')
               input.type = 'file'
               input.multiple = true
-              input.accept = '.epub,.pdf,.mobi,.azw3,.fb2,.txt,.md,.cbz,.cbr'
+              input.accept = '.epub,.pdf,.mobi,.azw3,.azw,.fb2,.txt,.md,.docx,.doc,.cbz,.cbr'
               input.onchange = () => {
                 const files = Array.from(input.files ?? [])
                 if (files.length) void addBooksFromFiles(files)

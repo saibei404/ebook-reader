@@ -30,11 +30,19 @@ export interface MoyuAPI {
     p: string
   ): Promise<{
     ok: boolean
-    mode?: 'url' | 'buffer'
+    mode?: 'url' | 'buffer' | 'chapters' | 'images' | 'text'
     url?: string
     data?: ArrayBuffer
     size?: number
     name?: string
+    /** mode:'chapters' —— AZW3/AZW/MOBI 解析出的章节 HTML */
+    chapters?: { title: string; html: string }[]
+    /** mode:'chapters' 附带的元信息（书名/作者） */
+    meta?: { title?: string; author?: string }
+    /** mode:'images' —— CBR 解出的图片（已按文件名自然排序） */
+    images?: { name: string; url: string }[]
+    /** mode:'text' —— DOC 提取出的纯文本 */
+    text?: string
     error?: string
   }>
   onReaderCrashed(cb: () => void): () => void

@@ -196,6 +196,28 @@ export function chapterText(c: Chapter): string {
   return htmlToText(c.html ?? c.body)
 }
 
+/**
+ * 外部已切好的 HTML 章节 → Chapter[]。
+ * 用于主进程转换出来的容器格式（AZW3/AZW/MOBI 的章节 HTML），
+ * 字符偏移按「去标签后的正文长度」累计，与 TextReader 的 DOM 文本口径一致。
+ */
+export function htmlChapters(items: { title: string; html: string }[]): Chapter[] {
+  let cursor = 0
+  return items.map((it) => {
+    const chars = countTextChars(htmlToText(it.html))
+    const ch: Chapter = {
+      title: it.title || '正文',
+      // 标题已经在 html 里（h1/h2 原样保留），这里不再补 heading，避免重复一行
+      body: it.html,
+      source: 'html',
+      startChar: cursor,
+      charCount: chars,
+    }
+    cursor += chars
+    return ch
+  })
+}
+
 /** 纯文本 → 章节（按常见章节标题切分；无标题则整篇按长度分块） */
 export function splitPlainText(raw: string, chunkSize = 12000): Chapter[] {
   const text = raw.replace(/\r\n?/g, '\n')

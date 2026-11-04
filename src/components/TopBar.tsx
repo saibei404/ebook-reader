@@ -39,7 +39,7 @@ function ImportBooksButton() {
         ref={inputRef}
         type="file"
         multiple
-        accept=".epub,.pdf,.mobi,.azw3,.fb2,.txt,.md,.cbz,.cbr"
+        accept=".epub,.pdf,.mobi,.azw3,.azw,.fb2,.txt,.md,.docx,.doc,.cbz,.cbr"
         style={{ display: 'none' }}
         onChange={(e) => {
           const files = Array.from(e.target.files ?? [])

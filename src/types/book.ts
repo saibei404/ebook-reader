@@ -1,4 +1,4 @@
-export type BookFormat = 'epub' | 'pdf' | 'mobi' | 'azw3' | 'fb2' | 'txt' | 'md' | 'docx' | 'cbz' | 'cbr' | 'unknown'
+export type BookFormat = 'epub' | 'pdf' | 'mobi' | 'azw3' | 'azw' | 'fb2' | 'txt' | 'md' | 'docx' | 'doc' | 'cbz' | 'cbr' | 'unknown'
 
 /**
  * 阅读定位（locator）：跨格式统一的位置抽象，唯一真源。
@@ -160,10 +160,12 @@ export const FORMAT_LABEL: Record<BookFormat, string> = {
   pdf: 'PDF',
   mobi: 'MOBI',
   azw3: 'AZW3',
+  azw: 'AZW',
   fb2: 'FB2',
   txt: 'TXT',
   md: 'MD',
   docx: 'DOCX',
+  doc: 'DOC',
   cbz: 'CBZ',
   cbr: 'CBR',
   unknown: 'FILE',
@@ -174,11 +176,14 @@ export function formatFromName(name: string): BookFormat {
   if (ext === 'epub') return 'epub'
   if (ext === 'pdf') return 'pdf'
   if (ext === 'mobi') return 'mobi'
-  if (ext === 'azw3' || ext === 'azw') return 'azw3'
+  if (ext === 'azw3') return 'azw3'
+  if (ext === 'azw') return 'azw'
   if (ext === 'fb2') return 'fb2'
   if (ext === 'txt') return 'txt'
   if (ext === 'md' || ext === 'markdown') return 'md'
-  if (ext === 'docx' || ext === 'doc') return 'docx'
+  if (ext === 'docx') return 'docx'
+  // .doc 是 Word 97-2003 的 OLE2 容器，和 DOCX 完全不同的解析路径，必须单独成类
+  if (ext === 'doc') return 'doc'
   if (ext === 'cbz') return 'cbz'
   if (ext === 'cbr') return 'cbr'
   return 'unknown'

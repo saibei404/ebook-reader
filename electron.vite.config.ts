@@ -5,7 +5,10 @@ import pkg from './package.json'
 
 export default defineConfig({
   main: {
-    plugins: [externalizeDepsPlugin()],
+    // @lingo-reader/* 是纯 ESM 包（package.json "type":"module"），而主进程产物是 CJS；
+    // 外置会变成 require() 一个 ESM 文件 → 启动即报 "require is not defined"。
+    // 这两个包没有原生依赖，直接打进 main.js 最稳。
+    plugins: [externalizeDepsPlugin({ exclude: ['@lingo-reader/mobi-parser', '@lingo-reader/shared'] })],
     build: {
       outDir: 'out/main',
       lib: { entry: 'electron/main.ts', formats: ['cjs'] }

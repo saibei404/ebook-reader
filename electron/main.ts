@@ -881,6 +881,12 @@ const SHOT_STATES: ShotState[] = [
   { q: '?injectwp=1&theme=light', name: '28-wallpaper-texture-light' },
   { q: '?injectwp=1&maximized=1', name: '29-maximized-wallpaper' },
   { q: '?tab=profile&sec=appearance&theme=light&wallpaper=none', name: '30-light-settings-nowall' },
+  // 浅色 + 暗底 + 透明度拖到最低：用户实拍"整屏发灰、字看不清"的那个组合，锁成回归状态
+  { q: '?theme=light&wallpaper=dark&opacity=0.2', name: '31-light-lowopacity-dark' },
+  { q: '?theme=light&wallpaper=none&opacity=0.2', name: '32-light-lowopacity-nowall' },
+  // 浅色弹层/笔记页：表面叠得最多、最容易出现"白字压白底"的两个界面
+  { q: '?open=seed-01&theme=light&wallpaper=none', name: '33-light-detail' },
+  { q: '?tab=notes&theme=light&wallpaper=none', name: '34-light-notes' },
 ]
 
 async function waitRenderReady(win: BrowserWindow): Promise<void> {
@@ -2444,11 +2450,73 @@ async function runStyleTest(): Promise<void> {
       Math.abs(r.shell.h - r.viewport[1]) <= 1 &&
       r.topbarTop === 0
     out.push(`flush shell=${JSON.stringify(r.shell)} topbarTop=${r.topbarTop} viewport=${r.viewport}`)
+
+    // 浅色可读性：最坏组合（暗壁纸 + 透明度拖到 20%）下，纸面必须仍是浅色、正文对比度必须够。
+    // 用户实拍过"浅色模式整屏发灰、字看不清"——那一版表面是半透明白，背板一暗就塌了。
+    await win.loadFile(path.join(__dirname, '../renderer/index.html'), {
+      search: '?theme=light&wallpaper=dark&opacity=0.2',
+    })
+    await waitFor(win, `document.querySelector('.book-card') ? 1 : 0`, 25000)
+    await new Promise((r2) => setTimeout(r2, 900))
+    const lightProbe = await win.webContents.executeJavaScript(`(() => {
+      // computed 颜色有两种写法：rgb(28,28,30) 与 color(srgb 0.876 0.9 0.94)（color-mix 的结果）
+      const parse = (c) => {
+        if (!c) return null
+        const m = String(c).match(/-?[\\d.]+/g)
+        if (!m) return null
+        const k = String(c).startsWith('color(') ? 255 : 1
+        const v = [Number(m[0]) * k, Number(m[1]) * k, Number(m[2]) * k]
+        if (String(c).startsWith('rgba') || String(c).startsWith('color(')) {
+          const a = Number(m[3])
+          v.push(Number.isFinite(a) && m.length > 3 ? a : 1)
+        }
+        return v
+      }
+      const rel = (v) => { const s = v / 255; return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4 }
+      const lum = (rgb) => (rgb ? 0.2126 * rel(rgb[0]) + 0.7152 * rel(rgb[1]) + 0.0722 * rel(rgb[2]) : -1)
+      const over = (fg, bg) => (fg && fg.length > 3 ? [0, 1, 2].map((i) => fg[i] * fg[3] + bg[i] * (1 - fg[3])) : fg)
+      const contrast = (fgRaw, bgRaw) => {
+        const bg = parse(bgRaw)
+        const fg = over(parse(fgRaw), bg)
+        if (!fg || !bg) return -1
+        const a = lum(fg), b = lum(bg)
+        return Math.round(((Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05)) * 10) / 10
+      }
+      const cs = (sel) => { const el = document.querySelector(sel); return el ? getComputedStyle(el) : null }
+      const tab = cs('.tabbar'), content = cs('.app-content')
+      const title = cs('.book-title'), author = cs('.book-author'), count = cs('.topbar-count')
+      const tabBg = tab ? tab.backgroundColor : ''
+      const contentBg = content ? content.backgroundColor : ''
+      return JSON.stringify({
+        attr: document.documentElement.dataset.bgLum,
+        tabLum: Math.round(lum(parse(tabBg)) * 1000) / 1000,
+        contentLum: Math.round(lum(parse(contentBg)) * 1000) / 1000,
+        titleContrast: title ? contrast(title.color, contentBg) : -1,
+        authorContrast: author ? contrast(author.color, contentBg) : -1,
+        countContrast: count ? contrast(count.color, tabBg) : -1,
+      })
+    })()`)
+    out.push(`light-contrast ${lightProbe}`)
+    const lc = JSON.parse(String(lightProbe)) as {
+      attr: string
+      tabLum: number
+      contentLum: number
+      titleContrast: number
+      authorContrast: number
+      countContrast: number
+    }
+    // 纸面亮度 ≥0.75（≈ #e0 以上）才算"浅色"；正文 ≥7:1、辅助文字 ≥4.5:1（WCAG AA）
+    const okLight =
+      lc.tabLum >= 0.75 &&
+      lc.contentLum >= 0.8 &&
+      lc.titleContrast >= 7 &&
+      lc.authorContrast >= 4.5 &&
+      lc.countContrast >= 4.5
     out.push(
-      `checks row=${okRow} block=${okBlock} nav=${okNav} flush=${okFlush} numRows=${okNumRows} numInput=${okNumInput} builtin=${okBuiltin} popover=${okPopover}`
+      `checks row=${okRow} block=${okBlock} nav=${okNav} flush=${okFlush} numRows=${okNumRows} numInput=${okNumInput} builtin=${okBuiltin} popover=${okPopover} light=${okLight}`
     )
     out.push(
-      okRow && okBlock && okNav && okFlush && okNumRows && okNumInput && okBuiltin && okPopover
+      okRow && okBlock && okNav && okFlush && okNumRows && okNumInput && okBuiltin && okPopover && okLight
         ? 'STYLE_OK'
         : 'STYLE_FAIL'
     )

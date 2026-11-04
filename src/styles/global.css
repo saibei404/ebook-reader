@@ -118,14 +118,14 @@ code {
 }
 
 [data-theme="light"] {
-  /* 背景 / 表面（纯净底色） */
-  --bg-fallback: #ffffff;
-  --bg-base: #ffffff;
+  /* 背景 / 表面（浅色底座：冷灰底 + 白色纸面，不用纯白——纯白之上再叠半透明白会整片塌平） */
+  --bg-fallback: #eef1f6;
+  --bg-base: #eef1f6;
   /* 浅色 Dock：比书架纸面暗一档的冷灰（原来的 244,244,246 叠在白底/亮壁纸上几乎看不见，
      顶栏与侧栏"消失"，整屏像一张白纸）。透明度仍由 --dock-opacity 控制。 */
   --dock-bg: rgba(233, 237, 244, var(--dock-opacity, 0.55));
   /* 浅色默认更透（壁纸更清晰），可由「背景透明度」调节 */
-  --content-surface: rgba(255, 255, 255, var(--content-opacity, 0.6));
+  --content-surface: rgba(255, 255, 255, var(--content-opacity, 0.66));
   --chip-surface: #f2f2f4;
   --surf-1: #f4f4f6;
   --surf-2: #f4f4f6;
@@ -136,18 +136,21 @@ code {
   --surface-card: rgba(255, 255, 255, 0.7);
   --surface-inset: rgba(255, 255, 255, 0.55);
   --surface-inset-line: rgba(60, 60, 67, 0.12);
-  /* 文字 / 图标 */
-  --text-1: #000000;
-  --text-2: rgba(60, 60, 67, 0.62);
-  --text-3: rgba(60, 60, 67, 0.45);
+  /* 文字 / 图标：纯黑在浅色底上过锐、发涩，改 #1c1c1e；
+     次级文字原来 0.62/0.45 在白底上只有 4.3:1 / 2.7:1，压到纸面上发虚读不动。
+     现在 0.78 / 0.62 —— 在浅色纸面（含"最暗背板"兜底）上分别 ≈7.9:1 / 4.6:1，
+     刚好过 WCAG AA 的正文线，又保住三级层次。 */
+  --text-1: #1c1c1e;
+  --text-2: rgba(28, 28, 32, 0.78);
+  --text-3: rgba(28, 28, 32, 0.65);
   --nav-text-shadow: 0 1px 2px rgba(255, 255, 255, 0.55);
   /* 分隔线 / 描边 */
-  --border-1: rgba(60, 60, 67, 0.14);
-  --border-2: rgba(60, 60, 67, 0.28);
+  --border-1: rgba(60, 60, 67, 0.16);
+  --border-2: rgba(60, 60, 67, 0.3);
   /* 填充 */
   --hover-bg: rgba(120, 120, 128, 0.12);
   --active-bg: rgba(120, 120, 128, 0.2);
-  --scroll-thumb: rgba(60, 60, 67, 0.28);
+  --scroll-thumb: rgba(60, 60, 67, 0.3);
   --code-bg: rgba(120, 120, 128, 0.12);
   /* 壁纸适配罩（浅色白罩提亮 / 深色黑罩压暗） */
   --wallpaper-scrim: #ffffff;
@@ -172,26 +175,29 @@ code {
   color-scheme: light;
 }
 
-/* ========== 无壁纸底座（浅色） ==========
- * 浅色主题的底色是纯白，而 Dock / 顶栏 / 书架底纹本身都是"半透明白"。
- * 有壁纸时它们的对比来自壁纸；一旦没有壁纸可透，三层就叠在同一张白纸上：
- * 侧栏、顶栏、卡片边框、输入框轮廓全部消失，整屏一片白——看着像样式没加载。
+/* ========== 浅色「安全底」==========
+ * 浅色的纸面/导轨都是半透明白，颜色最终取决于**背后是什么**。
+ * 背板一旦是深的（暗壁纸、系统深色亚克力、没装壁纸时的窗口底），
+ * 黑字就会落在 60 号灰上——对比度 2:1 都不到，整屏糊成一片（用户实拍截图就是这个）。
  *
- * 无壁纸其实不需要任何半透明，直接给一套实色分层：
- *   导航/窗口底（冷灰 #e9edf4）→ 书架纸面（#fbfcfe）→ 卡片（纯白 + 描边）
- * 相邻两层明度差 ≥18/255，纯白屏幕上也能看清结构。
- * 深色主题不用改：黑底 + 深灰表面本来就分得开。
+ * 所以浅色下按「背板亮度」分两条路：
+ *   亮壁纸  → 保持半透明（能看见壁纸细节）
+ *   暗/未知 → 换成不透明合成：白 × 透明度 + 浅灰，无论透明度调到多低都还是浅色
+ * `color-mix` 在 CSS 里做这件事，滑块的 20%~90% 依旧有效，但只改变纸面白度，
+ * 不会再跌进深色区间。
  */
-[data-no-wallpaper='1'][data-theme='light'] {
-  --bg-fallback: #e9edf4;
-  --bg-base: #e9edf4;
-  --dock-bg: #e9edf4;
-  --content-surface: #fbfcfe;
+[data-theme='light'][data-no-wallpaper='1'],
+[data-theme='light'][data-bg-lum='dark'],
+[data-theme='light'][data-bg-lum='unknown'],
+[data-theme='light'][data-native-acrylic='1'] {
+  --bg-fallback: #eef1f6;
+  --bg-base: #eef1f6;
+  --dock-bg: color-mix(in srgb, #e9edf4 calc(var(--dock-opacity) * 100%), #dde4ee);
+  --content-surface: color-mix(in srgb, #ffffff calc(var(--content-opacity) * 100%), #e7ecf4);
   --surface-card: #ffffff;
-  --chip-surface: #f4f6fa;
-  --surface-inset: #f7f8fb;
-  --border-1: rgba(60, 60, 67, 0.16);
-  --border-2: rgba(60, 60, 67, 0.26);
+  --chip-surface: #f1f4f9;
+  --surface-inset: #f5f7fb;
+  --acrylic-card: rgba(255, 255, 255, 0.82);
 }
 
 /* ========== 材质系统 ==========
@@ -337,34 +343,11 @@ code {
 }
 
 /* 顶/左 Dock 完全同参数：同一底色、同一模糊、同一透明度（--dock-bg/--dock-opacity） */
-.tabbar-brand {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 2px 6px;
-}
-
 .brand-icon {
   width: 34px;
   height: 34px;
   border-radius: 9px;
   box-shadow: 0 3px 10px rgba(0, 0, 0, 0.3);
-}
-
-.brand-text {
-  display: flex;
-  flex-direction: column;
-  line-height: 1.25;
-}
-
-.brand-name {
-  font-weight: 600;
-  font-size: 15px;
-}
-
-.brand-sub {
-  font-size: 11px;
-  color: var(--text-3);
 }
 
 .tabbar-nav {
@@ -659,18 +642,23 @@ code {
   display: grid;
   place-items: center;
   border-radius: 0;
-  color: var(--text-2);
-  transition: background 0.15s ease, color 0.15s ease;
+  /* 图标用主文字色再压到 72%：浅色下 --text-2 偏灰，压在导轨上会"消失"，
+     用户看到的就是右上角一片空白（其实按钮在，只是看不见） */
+  color: var(--text-1);
+  opacity: 0.72;
+  transition: background 0.15s ease, color 0.15s ease, opacity 0.15s ease;
 }
 
 .wbtn:hover {
   background: var(--hover-bg);
   color: var(--text-1);
+  opacity: 1;
 }
 
 .wbtn.close:hover {
   background: #e81123;
   color: #fff;
+  opacity: 1;
 }
 
 /* 右下角与窗口同圆角：只有关闭键需要，其它按钮保持直角 */
@@ -1998,7 +1986,6 @@ code {
     width: 64px;
     padding: 16px 8px;
   }
-  .brand-text,
   .tab-btn-inner span:last-child,
   .foot-btn span:last-child {
     display: none;

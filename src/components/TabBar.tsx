@@ -13,14 +13,7 @@ export function TabBar() {
 
   return (
     <div className={`tabbar mat-${settings.material}`}>
-      <div className="tabbar-brand">
-        <img className="brand-icon" src={`${import.meta.env.BASE_URL}assets/icon.png`} alt="logo" />
-        <div className="brand-text">
-          <span className="brand-name">墨鱼阅读</span>
-          <span className="brand-sub">本地书架</span>
-        </div>
-      </div>
-
+      {/* 左上角不再单独占一栏放 logo + 软件名：窗口标题区在顶栏，侧栏直接从导航开始 */}
       <nav className="tabbar-nav">
         {TABS.map((t) => {
           const active = ui.tab === t.id

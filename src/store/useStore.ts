@@ -212,6 +212,7 @@ interface ShotOverrides extends Partial<Settings> {
   netpan?: string
   shelf?: string
   wallpaper?: string
+  opacity?: string
 }
 
 function readShotOverrides(): ShotOverrides {
@@ -236,6 +237,8 @@ function readShotOverrides(): ShotOverrides {
   if (p.get('netpan')) o.netpan = p.get('netpan') as string
   // 壁纸：none = 未设置壁纸（浅色/深色最干净的基线），light/dark = 内置壁纸，其余按 id 或名称匹配
   if (p.get('wallpaper')) o.wallpaper = p.get('wallpaper') as string
+  // 背景透明度（0~1）：把「拖到最低」这种极端配置也纳入截图回归
+  if (p.get('opacity')) o.opacity = p.get('opacity') as string
   return o
 }
 
@@ -464,9 +467,16 @@ export const useStore = create<Store>((setState, getState) => ({
     if (ov.wp) uiPatch.wallpaperOpen = true
     if (ov.sec) uiPatch.settingsSection = ov.sec
     if (ov.shelf) uiPatch.shelfFilter = ov.shelf
-    const { tab: _t, open: _o, cover: _c, sec: _s, wp: _w, scroll: _s2, netpan: _n, shelf: _sf, wallpaper: _wp, ...settingsOverride } = ov
+    const { tab: _t, open: _o, cover: _c, sec: _s, wp: _w, scroll: _s2, netpan: _n, shelf: _sf, wallpaper: _wp, opacity: _op, ...settingsOverride } = ov
 
     const merged = { ...settings, ...settingsOverride }
+    if (ov.opacity) {
+      const v = Number(ov.opacity)
+      if (v >= 0 && v <= 1) {
+        merged.contentOpacity = v
+        merged.dockOpacity = v
+      }
+    }
     // 截图/自检的壁纸覆盖：不传就沿用 IndexedDB 里上一次的选择（否则每次截图都会串到上一轮的状态）。
     // `none` 是「从未设置壁纸」这一基线状态——浅色模式白底、深色模式黑底都只在这种状态下才看得到。
     if (ov.wallpaper) {

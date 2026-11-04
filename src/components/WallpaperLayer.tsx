@@ -3,7 +3,8 @@ import { AnimatePresence, motion } from 'motion/react'
 import { useStore } from '@/store/useStore'
 import { WALLPAPER_FITS, type WallpaperFit } from '@/types/book'
 
-function averageColor(url: string): Promise<string> {
+/** 取壁纸平均色 + 相对亮度（0~1），亮度用来判断浅色模式要不要给表面兜底 */
+function averageColor(url: string): Promise<{ css: string; lum: number }> {
   return new Promise((resolve) => {
     const img = new Image()
     img.onload = () => {
@@ -12,7 +13,7 @@ function averageColor(url: string): Promise<string> {
         c.width = 24
         c.height = 24
         const ctx = c.getContext('2d')
-        if (!ctx) return resolve('')
+        if (!ctx) return resolve({ css: '', lum: -1 })
         ctx.drawImage(img, 0, 0, 24, 24)
         const d = ctx.getImageData(0, 0, 24, 24).data
         let r = 0
@@ -24,12 +25,21 @@ function averageColor(url: string): Promise<string> {
           g += d[i + 1]
           b += d[i + 2]
         }
-        resolve(`rgb(${Math.round(r / n)}, ${Math.round(g / n)}, ${Math.round(b / n)})`)
+        const ar = r / n
+        const ag = g / n
+        const ab = b / n
+        // sRGB → 相对亮度（WCAG 同款系数）；不追求精确，够判断"深/浅"即可
+        const lin = (v: number) => {
+          const s = v / 255
+          return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4
+        }
+        const lum = 0.2126 * lin(ar) + 0.7152 * lin(ag) + 0.0722 * lin(ab)
+        resolve({ css: `rgb(${Math.round(ar)}, ${Math.round(ag)}, ${Math.round(ab)})`, lum })
       } catch {
-        resolve('')
+        resolve({ css: '', lum: -1 })
       }
     }
-    img.onerror = () => resolve('')
+    img.onerror = () => resolve({ css: '', lum: -1 })
     img.src = url
   })
 }
@@ -62,12 +72,18 @@ export function WallpaperLayer() {
   const zoom = settings.wallpaperZoom
 
   useEffect(() => {
-    if (!url || isVideo) return
+    if (!url || isVideo) {
+      // 视频壁纸取不到平均色：按"未知"处理，浅色下走不透明兜底，宁可保守
+      if (isVideo) document.documentElement.dataset.bgLum = 'unknown'
+      return
+    }
     let alive = true
-    void averageColor(url).then((color) => {
-      if (alive && color) {
-        document.documentElement.style.setProperty('--wall-tint', color)
-      }
+    void averageColor(url).then(({ css, lum }) => {
+      if (!alive) return
+      if (css) document.documentElement.style.setProperty('--wall-tint', css)
+      // 浅色主题要据此决定「表面能不能半透明」：底下太暗就必须用不透明浅色合成，
+      // 否则黑字压在深灰上，对比度直接崩掉。
+      document.documentElement.dataset.bgLum = lum < 0 ? 'unknown' : lum < 0.45 ? 'dark' : 'light'
     })
     return () => {
       alive = false

@@ -102,7 +102,10 @@ export function BookDetail() {
 
         <div className="detail-cover-col">
           <motion.img
-            layoutId={`cover-${book.id}`}
+            /* morph 时不再给 layoutId：原生 View Transitions 已经在做「卡片封面 → 详情封面」
+               的形变，motion 的 shared layout 会再跑一遍同样的封面飞入，两个动画叠在一起。
+               非 morph 场景（?open= / 阅读器返回）没有 VT，仍保留原来的封面飞入。 */
+            layoutId={morph ? undefined : `cover-${book.id}`}
             ref={coverRef}
             className={`detail-cover${named ? ' vt-morph' : ''}`}
             src={coverUrl}

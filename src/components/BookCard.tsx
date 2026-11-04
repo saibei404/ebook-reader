@@ -4,6 +4,8 @@ import type { Book } from '@/types/book'
 import { FORMAT_LABEL } from '@/types/book'
 import { useStore } from '@/store/useStore'
 import { openBookWithCover } from '@/lib/vt-book'
+import { isRecentlyAdded } from '@/lib/recent-added'
+import { NEW_CARD_INITIAL, NEW_CARD_ANIMATE } from '@/lib/anim'
 import { IconTrash, IconImage } from './Icons'
 
 interface Props {
@@ -28,6 +30,8 @@ export function BookCard({
   dragging = false,
 }: Props) {
   const { covers, procCovers, openBook, removeBook, setUI } = useStore()
+  /** 只在挂载时判一次：标记 1.5s 后会过期，不能让重渲染把入场动画换掉 */
+  const [justAdded] = useState(() => isRecentlyAdded(book.id))
   /** 落点提示：'before' | 'after' | null */
   const [dropSide, setDropSide] = useState<'before' | 'after' | null>(null)
   const dropSideRef = useRef<'before' | 'after' | null>(null)
@@ -118,7 +122,10 @@ export function BookCard({
     <motion.div
       className={`book-card${dropSide ? ` drop-${dropSide}` : ''}${onDragStartBook ? ' draggable' : ''}`}
       custom={index}
-      variants={itemVariants}
+      /* 中途插入的卡片显式声明自己的 initial/animate，不依赖父容器的 stagger 编排 */
+      variants={justAdded ? undefined : itemVariants}
+      initial={justAdded ? NEW_CARD_INITIAL : undefined}
+      animate={justAdded ? NEW_CARD_ANIMATE : undefined}
       exit={exitVariants}
       /* layout（不是 position）：封面尺寸切换（小/中/大）时宽高一起补间，只是挪位的用不上 */
       layout

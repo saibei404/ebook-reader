@@ -21,6 +21,7 @@ import {
   allCovers,
 } from '@/lib/db'
 import { generateCoverDataUrl } from '@/lib/cover'
+import { markAdded } from '@/lib/recent-added'
 import { seedBooks } from '@/lib/seed'
 import { nativeApi, type PickedFile } from '@/lib/native'
 
@@ -595,6 +596,8 @@ export const useStore = create<Store>((setState, getState) => ({
     }
 
     if (created.length) {
+      // 必须在 setState 之前：新卡片挂载时就要能读到「我是刚导入的」
+      markAdded(created.map((b) => b.id))
       setState((s) => ({
         books: [...s.books, ...created],
         covers: { ...s.covers, ...newCovers },

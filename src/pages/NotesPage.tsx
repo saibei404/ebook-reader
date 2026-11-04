@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { motion } from 'motion/react'
+import { AnimatePresence, motion } from 'motion/react'
 import { useStore } from '@/store/useStore'
 import { allAnnotations, deleteAnnotation, putAnnotation } from '@/lib/db'
 import type { Annotation } from '@/types/book'
@@ -176,8 +176,16 @@ export function NotesPage() {
             <span className="notes-book">{g.title}</span>
             <span className="notes-count">{g.items.length} 条</span>
           </div>
+          <AnimatePresence initial={false}>
           {g.items.map((a) => (
-            <div key={a.id} className="note-card">
+            <motion.div
+              key={a.id}
+              className="note-card"
+              layout
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.98, transition: { duration: 0.14 } }}
+            >
               <div className="note-card-top">
                 <button className="note-jump" onClick={() => openAt(a)}>
                   <span className="note-meta">
@@ -222,8 +230,9 @@ export function NotesPage() {
                   {a.note || '＋ 添加备注'}
                 </button>
               )}
-            </div>
+            </motion.div>
           ))}
+          </AnimatePresence>
         </motion.section>
       ))}
     </div>

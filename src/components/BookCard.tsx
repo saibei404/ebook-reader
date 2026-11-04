@@ -119,7 +119,8 @@ export function BookCard({
       custom={index}
       variants={itemVariants}
       exit={exitVariants}
-      layout="position"
+      /* layout（不是 position）：封面尺寸切换（小/中/大）时宽高一起补间，只是挪位的用不上 */
+      layout
       whileHover={{ y: -10, scale: 1.035, transition: { type: 'spring', stiffness: 400, damping: 26 } }}
       onClick={() => openBook(book.id)}
       ref={cardRef}

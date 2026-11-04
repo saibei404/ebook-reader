@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'motion/react'
 import { useStore } from '@/store/useStore'
 import { nativeApi } from '@/lib/native'
+import NumberFlow from '@number-flow/react'
 import { NumberField } from './NumberFields'
 import {
   IconPlus,
@@ -231,7 +232,9 @@ export function TopBar() {
         <button className="brand-btn" onClick={() => setUI({ tab: 'library' })} title="返回书架首页">
           {/* Logo 仅展示于界面左上方（侧边 Dock 顶部），顶栏只保留页面标题 */}
           <span className="topbar-page">{pageTitle}</span>
-          <span className="topbar-count">{books.length} 本</span>
+          <span className="topbar-count">
+            <NumberFlow value={books.length} /> 本
+          </span>
         </button>
       </div>
 

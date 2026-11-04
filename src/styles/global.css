@@ -1390,6 +1390,77 @@ code {
   backdrop-filter: blur(12px);
 }
 
+/* ---------- 动效基元：滚动手感 / 文字微光 / sonner 主题 ---------- */
+
+/* 阅读进度条：由真实滚动驱动（scaleX），只做合成层动画，不触发布局。
+   用 sticky 贴在滚动容器顶部，滚下去也一直可见；负 margin 抵消 2px 占位。 */
+.scroll-progress {
+  position: sticky;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  margin-bottom: -2px;
+  transform-origin: 0 50%;
+  background: linear-gradient(90deg, var(--accent, #4c8dff), color-mix(in srgb, var(--accent, #4c8dff) 55%, transparent));
+  opacity: 0.85;
+  pointer-events: none;
+  z-index: 6;
+}
+
+/* 文字微光：渐变位移走合成线程；降级由 prefers-reduced-motion 兜底 */
+.text-shimmer {
+  background: linear-gradient(
+    100deg,
+    var(--text-2) 20%,
+    var(--text-1) 40%,
+    color-mix(in srgb, var(--accent, #4c8dff) 70%, var(--text-1)) 52%,
+    var(--text-1) 64%,
+    var(--text-2) 84%
+  );
+  background-size: 260% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: shimmer-slide var(--shimmer-duration, 3.6s) linear infinite;
+}
+
+@keyframes shimmer-slide {
+  from {
+    background-position: 160% 0;
+  }
+  to {
+    background-position: -60% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .text-shimmer {
+    animation: none;
+    background: none;
+    color: var(--text-2);
+  }
+}
+
+/* sonner 用 CSS 变量取主题，避免它自带的白底在深色下突兀 */
+.toaster-host [data-sonner-toast] {
+  font-size: 13px;
+  color: var(--text-1);
+  background: var(--surf-solid);
+  border: 1px solid var(--border-2);
+  border-radius: 12px;
+  box-shadow: var(--card-shadow-hover);
+  backdrop-filter: blur(12px);
+}
+
+.toaster-host [data-sonner-toast][data-type='success'] {
+  border-color: color-mix(in srgb, var(--ok) 55%, transparent);
+}
+
+.toaster-host [data-sonner-toast][data-type='error'] {
+  border-color: color-mix(in srgb, var(--err) 55%, transparent);
+}
+
 .toast-ok {
   border-color: color-mix(in srgb, var(--ok) 55%, transparent);
 }

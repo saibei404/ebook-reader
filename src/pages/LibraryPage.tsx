@@ -1,3 +1,5 @@
+import NumberFlow from '@number-flow/react'
+import { TextShimmer } from '@/components/ui/TextShimmer'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useStore, selectBooks, DONE_THRESHOLD } from '@/store/useStore'
 import { ANIM_MODES, type Book, type Shelf } from '@/types/book'
@@ -261,7 +263,9 @@ export function LibraryPage() {
             动效：{current.label} · {current.hint}
           </span>
         )}
-        <span className="library-hint">{doneCount} 本已读完</span>
+        <span className="library-hint">
+          <NumberFlow value={doneCount} /> 本已读完
+        </span>
         {/* 封面尺寸（自「我的 → 外观」迁移而来）：位于统计栏右侧 */}
         <div className="lib-card-size" title="书籍封面尺寸">
           {CARD_SIZES.map((c) => (
@@ -307,7 +311,7 @@ export function LibraryPage() {
           {books.length === 0 && (
             <div className="empty-state">
               <IconLibrary size={44} />
-              <h3>书架空空如也</h3>
+              <h3><TextShimmer>书架空空如也</TextShimmer></h3>
               <p>导入本地书籍，或使用网盘导入</p>
               <button className="tbtn primary" onClick={onImport}>
                 <IconPlus size={15} />
@@ -318,7 +322,7 @@ export function LibraryPage() {
           {books.length > 0 && list.length === 0 && (
             <div className="empty-state">
               <IconLibrary size={44} />
-              <h3>没有符合条件的书籍</h3>
+              <h3><TextShimmer>没有符合条件的书籍</TextShimmer></h3>
               <p>当前筛选或搜索条件下没有匹配项</p>
               <button className="tbtn" onClick={() => setUI({ filter: 'all', search: '' })}>
                 <span>重置筛选条件</span>
@@ -330,7 +334,7 @@ export function LibraryPage() {
         books.length === 0 ? (
           <div className="empty-state">
             <IconLibrary size={44} />
-            <h3>书架空空如也</h3>
+            <h3><TextShimmer>书架空空如也</TextShimmer></h3>
             <p>导入本地书籍，或使用网盘导入</p>
             <button className="tbtn primary" onClick={onImport}>
               <IconPlus size={15} />
@@ -340,7 +344,7 @@ export function LibraryPage() {
         ) : (
           <div className="empty-state">
             <IconLibrary size={44} />
-            <h3>没有符合条件的书籍</h3>
+            <h3><TextShimmer>没有符合条件的书籍</TextShimmer></h3>
             <p>当前筛选或搜索条件下没有匹配项</p>
             <button
               className="tbtn"

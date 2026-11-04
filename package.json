@@ -1,6 +1,6 @@
 {
   "name": "moyu-reader",
-  "version": "0.9.4",
+  "version": "0.9.5",
   "description": "墨鱼阅读器 —— 本地优先的跨平台电子书阅读器（Electron + React + TypeScript）",
   "author": "saibei404",
   "license": "MIT",
@@ -18,7 +18,9 @@
     "push": "bash scripts/push.sh"
   },
   "dependencies": {
+    "@formkit/auto-animate": "^0.10.0",
     "@lingo-reader/mobi-parser": "^0.4.6",
+    "@number-flow/react": "^0.6.2",
     "epubjs": "^0.3.93",
     "fflate": "^0.8.3",
     "idb": "^8.0.0",
@@ -28,6 +30,7 @@
     "pdfjs-dist": "^4.10.38",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "sonner": "^2.0.8",
     "word-extractor": "^1.0.4",
     "zustand": "^5.0.0"
   },

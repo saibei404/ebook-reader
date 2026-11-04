@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { Chapter } from '../text-utils'
+import { ScrollProgress } from '@/components/ui/ScrollProgress'
 import { chapterHtml } from '../text-utils'
 import type { AnnotationColor, Locator } from '@/types/book'
 import {
@@ -410,6 +411,7 @@ export function TextReader({
 
   return (
     <div className="text-scroll" ref={scrollRef}>
+      <ScrollProgress containerRef={scrollRef} />
       <div
         className={`text-inner${htmlMode ? ' text-inner--html' : ''}${onSelect || highlights.length ? ' text-inner--selectable' : ''}`}
         ref={innerRef}

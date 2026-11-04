@@ -23,6 +23,8 @@ import { DEFAULT_PREFS, FONT_STACK, loadPrefs, savePrefs, themeColors, type Read
 import { perfMark, perfRead } from '@/lib/perf'
 import './reader.css'
 import { NumberField } from '@/components/NumberFields'
+import { useAutoAnimate } from '@formkit/auto-animate/react'
+import { ScrollProgress } from '@/components/ui/ScrollProgress'
 
 // 重引擎按格式懒加载：TXT/FB2 用户不会为 epub.js / pdf.js 付出首屏成本
 const EpubReader = lazy(() => import('./formats/EpubReader').then((m) => ({ default: m.EpubReader })))
@@ -72,6 +74,8 @@ export function ReaderApp() {
   const [toc, setToc] = useState<{ label: string; href: string; depth: number }[]>([])
   const [toolbarVisible, setToolbarVisible] = useState(true)
   const [bookmarks, setBookmarks] = useState<Bookmark[]>([])
+  /** 书签面板的增删动效：只补间位置/高度，不接管样式 */
+  const [bmListRef] = useAutoAnimate<HTMLDivElement>({ duration: 200, easing: 'ease-out' })
   const [bmOpen, setBmOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -742,7 +746,7 @@ export function ReaderApp() {
 
       {/* 书签 */}
       {bmOpen && (
-        <div className="epub-nav bm-panel">
+        <div className="epub-nav bm-panel" ref={bmListRef}>
           <div className="bm-head">
             <span>书签（{bookmarks.length}）</span>
             <button className="rb" onClick={() => void addBookmark()}>

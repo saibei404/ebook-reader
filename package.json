@@ -14,7 +14,8 @@
     "dist:portable": "electron-vite build && electron-builder --win portable -c.directories.output=release",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:cov": "vitest run --coverage --no-file-parallelism"
+    "test:cov": "vitest run --coverage --no-file-parallelism",
+    "push": "bash scripts/push.sh"
   },
   "dependencies": {
     "epubjs": "^0.3.93",

@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# 推送并自动寻找可用代理出口。
+#
+# 背景：本机 github.com 无法直连，必须走本地代理；但代理端口会变
+# （实测 10 分钟内从 7897 跳到 50523），写死一个端口会导致 push 随机失败。
+# 这里先试当前配置，失败再扫本机监听端口，逐个验证能否访问 github.com。
+# 探测超时给到 8s：github.com 握手在慢链路下 3s 会误判成不可用。
+set -u
+cd "$(dirname "$0")/.." || exit 1
+
+try_push() {
+  local proxy="${1:-}"
+  if [ -n "$proxy" ]; then
+    git -c "http.proxy=$proxy" -c "https.proxy=$proxy" push 2>&1
+  else
+    git push 2>&1
+  fi
+}
+
+echo "== 1/2 使用当前配置推送 =="
+if try_push ""; then
+  echo "PUSH_OK (configured proxy)"
+  exit 0
+fi
+
+echo "== 2/2 探测可用出口 =="
+candidates="7897 7890 10809 1080 53433"
+extra=$(netstat -ano 2>/dev/null | grep LISTENING | grep -oE "127\.0\.0\.1:[0-9]+" | cut -d: -f2 | sort -u)
+for p in $candidates $extra; do
+  code=$(curl -x "http://127.0.0.1:$p" -sS -o /dev/null -m 8 -w "%{http_code}" https://github.com/ 2>/dev/null || echo "000")
+  if [ "$code" = "200" ] || [ "$code" = "301" ]; then
+    echo "-- 尝试端口 $p"
+    if try_push "http://127.0.0.1:$p"; then
+      echo "PUSH_OK (port $p)"
+      # 记住这次可用的端口，下次先用
+      git config http.proxy "http://127.0.0.1:$p"
+      exit 0
+    fi
+  fi
+done
+
+echo "PUSH_FAIL: 没有可用出口，请确认代理软件已启动"
+exit 1

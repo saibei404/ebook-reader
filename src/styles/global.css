@@ -67,6 +67,8 @@ code {
   --dock-bg: rgba(22, 22, 25, var(--dock-opacity, 0.55));
   /* 书架内容区衬底：不透明度由「背景透明度」设置项驱动（--content-opacity） */
   --content-surface: rgba(14, 14, 16, var(--content-opacity, 0.72));
+  /* 详情遮罩随主题：深色用中性暗罩，浅色用与底座同色系的浅罩，不能一律压黑 */
+  --detail-scrim: rgba(8, 9, 14, 0.62);
   --chip-surface: #1c1c1f;
   --surf-1: #161619;
   --surf-2: #161619;
@@ -126,6 +128,10 @@ code {
   --dock-bg: rgba(233, 237, 244, var(--dock-opacity, 0.55));
   /* 浅色默认更透（壁纸更清晰），可由「背景透明度」调节 */
   --content-surface: rgba(255, 255, 255, var(--content-opacity, 0.66));
+  /* 浅色主题下若沿用深色黑罩，会把冷灰侧栏和白色内容区一起压成「脏灰」，
+     且两者底色不同、压暗后色差被放大——这就是「色调不统一」的来源。
+     改用与 --bg-base 同色系的浅罩，保持整体仍在浅色调里。 */
+  --detail-scrim: rgba(238, 241, 246, 0.82);
   --chip-surface: #f2f2f4;
   --surf-1: #f4f4f6;
   --surf-2: #f4f4f6;
@@ -401,27 +407,6 @@ code {
   display: flex;
   flex-direction: column;
   gap: 6px;
-}
-
-.foot-btn {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 10px;
-  border-radius: 10px;
-  font-size: 12px;
-  color: var(--text-2);
-  transition: background 0.2s ease, color 0.2s ease;
-}
-
-.foot-btn:hover {
-  background: var(--hover-bg);
-  color: var(--text-1);
-}
-
-.foot-btn.icon-only {
-  align-self: flex-start;
-  padding: 8px;
 }
 
 /* 版本号：常驻在侧栏最底部，截图一眼能认出跑的是哪个包 */
@@ -1230,9 +1215,11 @@ code {
   z-index: 100;
   display: grid;
   place-items: center;
-  background: rgba(5, 6, 12, 0.5);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  background: var(--detail-scrim);
+  /* 不用 backdrop-filter：这是覆盖整屏的大面积模糊层，每帧都要合成整个视口。
+     本项目此前就因为「材质弹层反复创建/销毁大面积 blur」在 WebView2 合成器上
+     触发过 GPU 崩溃，常驻/全屏元素一律不用 blur（见上方 .mat-* 注释）。
+     改用稍实的主题色罩，颜色统一且没有合成开销。 */
   perspective: 1400px;
 }
 
@@ -2066,14 +2053,10 @@ code {
     width: 64px;
     padding: 16px 8px;
   }
-  .tab-btn-inner span:last-child,
-  .foot-btn span:last-child {
+  .tab-btn-inner span:last-child {
     display: none;
   }
   .tab-btn-inner {
-    justify-content: center;
-  }
-  .foot-btn {
     justify-content: center;
   }
   /* 侧栏收成 64px 时版本号放不下，隐藏（「关于」里仍可见） */

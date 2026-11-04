@@ -495,28 +495,55 @@ body {
 }
 
 .rs-label {
-  font-size: 12.5px;
+  font-size: 12px;
   color: var(--r-fg);
   opacity: 0.82;
 }
 
-/* 数值步进器：沿用主界面的 .numfield 结构，这里换成阅读器的主题变量 */
+/* 数值步进器：与下方 .rs-seg 用同一套「凹槽 + 抬起块」语言。
+   阅读窗口只加载 reader.css，没有 global.css 里那条
+   `button { background:none; border:none }` 全局重置——不显式清掉的话
+   −/+ 会掉回浏览器原生白底黑边方块，在深色面板里特别突兀。 */
 .reader-settings .numfield {
+  flex: none;
+  box-sizing: border-box;
+  /* 固定宽度：字号/宽度带 px、行距不带，原先三者分别是 107 / 90 / 107px */
+  width: 116px;
+  /* 与 .rs-seg 的 28px 按钮 + 上下各 3px padding 对齐 */
+  height: 34px;
+  gap: 2px;
+  padding: 3px;
+  border: none;
+  border-radius: 10px;
   background: color-mix(in srgb, var(--r-fg) 6%, transparent);
-  border-color: var(--r-line);
+  transition: background 0.16s ease, box-shadow 0.16s ease;
 }
 
 .reader-settings .numfield:focus-within {
-  border-color: color-mix(in srgb, var(--r-accent) 65%, transparent);
+  background: color-mix(in srgb, var(--r-fg) 9%, transparent);
+  /* 用 inset 阴影而不是 border：不会多出 1px 挤变尺寸，也和 .rs-seg button.active 同一套 */
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--r-accent) 45%, transparent);
 }
 
-.reader-settings .num-input {
-  color: var(--r-fg);
-  font-size: 12.5px;
+/* 没传单位的数值项（行距）也要占位，否则 + 按钮会比另外两行靠左 16px。
+   Electron 45 = Chromium 156，:has() 完全支持；万一不支持只是少个占位，不影响功能。 */
+.reader-settings .numfield:not(:has(.num-unit))::after {
+  content: "";
+  flex: 0 0 16px;
 }
 
 .reader-settings .num-btn {
+  flex: 0 0 26px;
+  width: 26px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  border-radius: 7px;
   color: var(--r-sub);
+  font-size: 14px;
+  line-height: 1;
+  transition: background 0.16s ease, color 0.16s ease;
 }
 
 .reader-settings .num-btn:hover {
@@ -524,7 +551,24 @@ body {
   color: var(--r-fg);
 }
 
+.reader-settings .num-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: auto;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--r-fg);
+  font-size: 12px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
 .reader-settings .num-unit {
+  flex: 0 0 16px;
+  width: 16px;
+  text-align: center;
+  font-size: 11px;
   color: var(--r-sub);
 }
 

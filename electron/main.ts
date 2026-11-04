@@ -180,11 +180,18 @@ function aliveReader(): BrowserWindow | null {
  */
 /** 阅读窗口最近一次上报的书目信息（崩溃弹窗/日志要能说出是哪本书） */
 let readerBookMeta: { id: string; title: string; format: string; size: number } | null = null
+/**
+ * 阅读窗口"当前"的书 id。不能靠 openReaderWin 的闭包参数：
+ * 已有窗口切换书籍走的是 existing.loadFile 后直接 return，不会重建窗口，
+ * 于是 render-process-gone 回调里的 bookId 永远是建窗时那本，崩溃日志会报错书。
+ */
+let readerCurrentBookId = ''
 /** 连续崩溃次数：第一次自动重开，第二次才认为"这个环境/这本书打不开" */
 let readerCrashStreak = 0
 let readerSurviveTimer: NodeJS.Timeout | null = null
 
 function openReaderWin(bookId: string, jump?: string): void {
+  readerCurrentBookId = bookId
   const search = `?bookId=${encodeURIComponent(bookId)}${jump ? `&jump=${encodeURIComponent(jump)}` : ''}`
   const existing = aliveReader()
   if (existing) {
@@ -222,8 +229,11 @@ function openReaderWin(bookId: string, jump?: string): void {
         // 2) BroadcastChannel 也只在同一分区内通信，位置变更无法回传书架。
       },
     })
+    const openedAt = Date.now()
     readerWin = win
-    readerBookMeta = null
+    // 别无条件清空：第一次崩溃后 600ms 就自动重开，渲染进程往往还没来得及
+    // 上报 meta，日志/弹窗就只剩一个 book id；书没变就沿用上次已知信息。
+    if (readerBookMeta && readerBookMeta.id !== bookId) readerBookMeta = null
 
     win.once('ready-to-show', () => {
       win.maximize()
@@ -247,9 +257,12 @@ function openReaderWin(bookId: string, jump?: string): void {
     win.webContents.on('render-process-gone', (_e, details) => {
       readerCrashStreak += 1
       const meta = readerBookMeta
+      // uptimeMs 能直接区分「一打开就崩」和「读了几分钟才崩」，比只看退出码有用得多；
+      // metaReported=false 说明崩在渲染进程上报书目之前。
       logCrash(
         `reader render-process-gone #${readerCrashStreak}: ${JSON.stringify(details)}` +
-          ` book=${bookId}${meta ? ` title=${meta.title} format=${meta.format} size=${meta.size}` : ''}`
+          ` book=${readerCurrentBookId} uptimeMs=${Date.now() - openedAt} metaReported=${!!meta}` +
+          `${meta ? ` title=${meta.title} format=${meta.format} size=${meta.size}` : ''}`
       )
       // 阅读窗口崩溃不应拖垮主窗口：仅提示并销毁残留
       if (!win.isDestroyed()) win.destroy()
@@ -262,7 +275,7 @@ function openReaderWin(bookId: string, jump?: string): void {
       // 第一次崩：直接重开一次。GPU/合成器抖动、驱动偶发重置都属这一类，重开基本就好。
       if (readerCrashStreak === 1) {
         setTimeout(() => {
-          if (!aliveReader()) openReaderWin(bookId, jump)
+          if (!aliveReader()) openReaderWin(readerCurrentBookId, jump)
         }, 600)
         return
       }
@@ -270,7 +283,7 @@ function openReaderWin(bookId: string, jump?: string): void {
       // 连续崩：说明是这本书或这台机器的图形栈，给用户可执行的出路，而不是继续静默重试
       const detail = meta
         ? `书籍：${meta.title}（${meta.format.toUpperCase()}，${(meta.size / 1024 / 1024).toFixed(1)}MB）`
-        : `书籍 ID：${bookId}`
+        : `书籍 ID：${readerCurrentBookId}`
       const opts: Electron.MessageBoxOptions = {
         type: 'error',
         title: '阅读窗口连续崩溃',
@@ -288,7 +301,7 @@ function openReaderWin(bookId: string, jump?: string): void {
           app.exit(0)
         } else if (r.response === 1) {
           readerCrashStreak = 0
-          openReaderWin(bookId, jump)
+          openReaderWin(readerCurrentBookId, jump)
         }
       })
     })

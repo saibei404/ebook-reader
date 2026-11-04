@@ -1,7 +1,7 @@
 import { motion } from 'motion/react'
 import { useStore } from '@/store/useStore'
 import { withViewTransition } from '@/lib/vt'
-import { IconLibrary, IconNote, IconUser, IconMoon, IconSun } from './Icons'
+import { IconLibrary, IconNote, IconUser } from './Icons'
 
 const TABS = [
   { id: 'library' as const, label: '书架', Icon: IconLibrary },
@@ -10,7 +10,7 @@ const TABS = [
 ]
 
 export function TabBar() {
-  const { ui, settings, setUI, setSettings } = useStore()
+  const { ui, settings, setUI } = useStore()
 
   return (
     <div className={`tabbar mat-${settings.material}`}>
@@ -41,14 +41,9 @@ export function TabBar() {
       </nav>
 
       <div className="tabbar-foot">
-        {/* 材质切换已收纳至「我的 → 外观」，此处仅保留主题快捷切换 */}
-        <button
-          className="foot-btn icon-only"
-          onClick={() => void setSettings({ theme: settings.theme === 'dark' ? 'light' : 'dark' })}
-          title={settings.theme === 'dark' ? '切换到浅色' : '切换到深色'}
-        >
-          {settings.theme === 'dark' ? <IconSun size={16} /> : <IconMoon size={16} />}
-        </button>
+        {/* 深浅模式只在顶栏留一个入口：以前侧栏底部还有一个，图标语义还相反
+            （深色下这里显示太阳=「点我切浅色」，顶栏显示月亮=「当前是深色」），
+            两个按钮叠在一起容易误判状态。 */}
         {/* 版本号常驻：截图/反馈时不用去「关于」确认跑的是哪个包（多次遇到拿旧 exe 报同一个问题） */}
         <span className="tabbar-ver" title="当前版本">
           v{__APP_VERSION__}

@@ -11,7 +11,7 @@
 npm install          # 安装依赖（Electron 二进制会自动下载）
 npm run dev          # 开发模式（热更新）
 npm run build        # 构建 main / preload / renderer
-npm run shot         # 自动化视觉测试：28 个界面状态截图到 screenshots/
+npm run shot         # 自动化视觉测试：30 个状态的整屏截图到 screenshots/（窗口图在 screenshots/window/）
 npm test             # 单元测试（vitest，138 用例）
 npm run test:cov     # 单测 + 覆盖率（核心纯函数 > 80%）
 npm run dist:portable# 打包免安装 exe 到 release/
@@ -86,7 +86,7 @@ ebook-reader/
 ├── scripts/               # run.cjs / gen_* 样本生成 / probe-reader.cjs 诊断
 ├── test-fixtures/         # 七格式排版验证样本
 ├── resources/             # 应用图标（ico/png/tray）
-└── screenshots/           # npm run shot 产出的 28 张状态截图
+└── screenshots/           # npm run shot 产出：整屏 30 张（含桌面，用来核对窗口边界）+ window/ 窗口内容 30 张
 ```
 
 ## 已知约束

@@ -121,7 +121,9 @@ code {
   /* 背景 / 表面（纯净底色） */
   --bg-fallback: #ffffff;
   --bg-base: #ffffff;
-  --dock-bg: rgba(244, 244, 246, var(--dock-opacity, 0.55));
+  /* 浅色 Dock：比书架纸面暗一档的冷灰（原来的 244,244,246 叠在白底/亮壁纸上几乎看不见，
+     顶栏与侧栏"消失"，整屏像一张白纸）。透明度仍由 --dock-opacity 控制。 */
+  --dock-bg: rgba(233, 237, 244, var(--dock-opacity, 0.55));
   /* 浅色默认更透（壁纸更清晰），可由「背景透明度」调节 */
   --content-surface: rgba(255, 255, 255, var(--content-opacity, 0.6));
   --chip-surface: #f2f2f4;
@@ -168,6 +170,28 @@ code {
   --ok: #34c759;
   --err: #ff3b30;
   color-scheme: light;
+}
+
+/* ========== 无壁纸底座（浅色） ==========
+ * 浅色主题的底色是纯白，而 Dock / 顶栏 / 书架底纹本身都是"半透明白"。
+ * 有壁纸时它们的对比来自壁纸；一旦没有壁纸可透，三层就叠在同一张白纸上：
+ * 侧栏、顶栏、卡片边框、输入框轮廓全部消失，整屏一片白——看着像样式没加载。
+ *
+ * 无壁纸其实不需要任何半透明，直接给一套实色分层：
+ *   导航/窗口底（冷灰 #e9edf4）→ 书架纸面（#fbfcfe）→ 卡片（纯白 + 描边）
+ * 相邻两层明度差 ≥18/255，纯白屏幕上也能看清结构。
+ * 深色主题不用改：黑底 + 深灰表面本来就分得开。
+ */
+[data-no-wallpaper='1'][data-theme='light'] {
+  --bg-fallback: #e9edf4;
+  --bg-base: #e9edf4;
+  --dock-bg: #e9edf4;
+  --content-surface: #fbfcfe;
+  --surface-card: #ffffff;
+  --chip-surface: #f4f6fa;
+  --surface-inset: #f7f8fb;
+  --border-1: rgba(60, 60, 67, 0.16);
+  --border-2: rgba(60, 60, 67, 0.26);
 }
 
 /* ========== 材质系统 ==========

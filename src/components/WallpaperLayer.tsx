@@ -74,6 +74,12 @@ export function WallpaperLayer() {
     }
   }, [url, isVideo])
 
+  // 「到底有没有壁纸」以这里解出来的 url 为准：settings.wallpaperId 可能指向一条
+  // 已被删除/损坏的记录，那时不渲染任何媒体，底层就该按无壁纸的实色方案铺。
+  useEffect(() => {
+    document.documentElement.dataset.noWallpaper = url ? '0' : '1'
+  }, [url])
+
   const mediaStyle = {
     objectFit: fitInfo.objectFit,
     transform: zoom !== 1 ? `scale(${zoom})` : undefined,

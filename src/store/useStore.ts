@@ -196,14 +196,28 @@ function applyDoc(s: Settings): void {
   const root = document.documentElement
   root.dataset.theme = s.theme
   root.dataset.material = s.material
+  // 有没有壁纸决定底层怎么铺：无壁纸时半透明表面没有东西可透，浅色下会整片塌成白纸
+  root.dataset.noWallpaper = s.wallpaperId ? '0' : '1'
   root.style.setProperty('--content-opacity', String(s.contentOpacity))
   root.style.setProperty('--dock-opacity', String(s.dockOpacity))
 }
 
-function readShotOverrides(): Partial<Settings> & { tab?: string; open?: string; cover?: boolean; sec?: string; wp?: string; scroll?: string; netpan?: string; shelf?: string } {
+interface ShotOverrides extends Partial<Settings> {
+  tab?: string
+  open?: string
+  cover?: boolean
+  sec?: string
+  wp?: string
+  scroll?: string
+  netpan?: string
+  shelf?: string
+  wallpaper?: string
+}
+
+function readShotOverrides(): ShotOverrides {
   if (typeof location === 'undefined') return {}
   const p = new URLSearchParams(location.search)
-  const o: Partial<Settings> & { tab?: string; open?: string; cover?: boolean; sec?: string; wp?: string; scroll?: string; netpan?: string; shelf?: string } = {}
+  const o: ShotOverrides = {}
   const anim = p.get('anim')
   if (anim && ['flip', 'fade', 'zoom', 'slide', 'stack'].includes(anim)) o.animMode = anim as AnimMode
   const mat = p.get('material')
@@ -220,6 +234,8 @@ function readShotOverrides(): Partial<Settings> & { tab?: string; open?: string;
   if (p.get('wp')) o.wp = p.get('wp') as string
   if (p.get('scroll')) o.scroll = p.get('scroll') as string
   if (p.get('netpan')) o.netpan = p.get('netpan') as string
+  // 壁纸：none = 未设置壁纸（浅色/深色最干净的基线），light/dark = 内置壁纸，其余按 id 或名称匹配
+  if (p.get('wallpaper')) o.wallpaper = p.get('wallpaper') as string
   return o
 }
 
@@ -448,9 +464,24 @@ export const useStore = create<Store>((setState, getState) => ({
     if (ov.wp) uiPatch.wallpaperOpen = true
     if (ov.sec) uiPatch.settingsSection = ov.sec
     if (ov.shelf) uiPatch.shelfFilter = ov.shelf
-    const { tab: _t, open: _o, cover: _c, sec: _s, wp: _w, scroll: _s2, netpan: _n, shelf: _sf, ...settingsOverride } = ov
+    const { tab: _t, open: _o, cover: _c, sec: _s, wp: _w, scroll: _s2, netpan: _n, shelf: _sf, wallpaper: _wp, ...settingsOverride } = ov
 
     const merged = { ...settings, ...settingsOverride }
+    // 截图/自检的壁纸覆盖：不传就沿用 IndexedDB 里上一次的选择（否则每次截图都会串到上一轮的状态）。
+    // `none` 是「从未设置壁纸」这一基线状态——浅色模式白底、深色模式黑底都只在这种状态下才看得到。
+    if (ov.wallpaper) {
+      if (ov.wallpaper === 'none') {
+        merged.wallpaperId = null
+      } else {
+        const want = ov.wallpaper
+        const hit =
+          wallpapers.find((w) => w.id === want) ??
+          (want === 'light' ? wallpapers.find((w) => w.id === 'builtin-light') : undefined) ??
+          (want === 'dark' ? wallpapers.find((w) => w.id === 'builtin-dark') : undefined) ??
+          wallpapers.find((w) => w.name.includes(want))
+        if (hit) merged.wallpaperId = hit.id
+      }
+    }
     applyDoc(merged)
     setState({
       books,

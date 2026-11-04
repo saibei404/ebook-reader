@@ -745,35 +745,142 @@ interface ShotState {
   keepFirst?: boolean
 }
 
+interface DesktopShot {
+  /** 整屏画面（含桌面、任务栏等窗口之外的部分） */
+  desktop: Electron.NativeImage | null
+  /** 仅窗口内容，作为桌面采集不可用时的兜底 */
+  window: Electron.NativeImage
+}
+
+/** 判断整屏帧是否可用：全黑/接近全黑说明屏幕采集被系统或环境挡住了 */
+function screenFrameUsable(img: Electron.NativeImage): boolean {
+  const { width, height } = img.getSize()
+  if (width < 320 || height < 240) return false
+  try {
+    const bmp = img.toBitmap()
+    const stride = width * 4
+    let sum = 0
+    let n = 0
+    // 均匀抽样 4000 点即可判断，不必逐像素扫 200 万像素
+    const step = Math.max(1, Math.floor((width * height) / 4000))
+    for (let i = 0; i < width * height; i += step) {
+      const o = Math.floor(i / width) * stride + (i % width) * 4
+      if (o + 2 >= bmp.length) break
+      sum += (bmp[o] + bmp[o + 1] + bmp[o + 2]) / 3
+      n++
+    }
+    return n > 0 && sum / n > 4
+  } catch {
+    return false
+  }
+}
+
+/**
+ * 整屏截图：桌面画面本身，而不是窗口内容。
+ *
+ * 为什么要整屏：只看窗口内容时，读者无法判断「软件顶边到底贴着屏幕顶边没有」——
+ * 画面从顶栏开始，上面没有参照物，任何一条底色都会被当成"多出来的空白带"。
+ * 整屏画面里窗口四周的桌面是可以对照的，顶边是否贴齐、有没有漏出的间隙一目了然。
+ */
+async function captureDesktop(): Promise<Electron.NativeImage | null> {
+  try {
+    const d = screen.getPrimaryDisplay()
+    const sf = d.scaleFactor
+    const sources = await desktopCapturer.getSources({
+      types: ['screen'],
+      thumbnailSize: {
+        width: Math.round(d.size.width * sf),
+        height: Math.round(d.size.height * sf),
+      },
+    })
+    const full = sources[0]?.thumbnail
+    if (!full || full.isEmpty() || !screenFrameUsable(full)) return null
+    return full
+  } catch {
+    return null
+  }
+}
+
+/**
+ * 采集一次「桌面 + 窗口内容」；窗口必须已显示，否则桌面帧里没有它。
+ *
+ * 顺序有讲究：先让窗口自己把这一帧画完（capturePage），等 DWM 把它合成到桌面表面上，
+ * 再去取整屏。两者并发时整屏帧可能是上一个状态的残留（表现为窗口下方/旁边多出一块
+ * 旧画面），这类"鬼影"靠人眼看截图才知道，自检断言抓不到。
+ */
+async function captureShot(win: BrowserWindow): Promise<DesktopShot> {
+  const window = await win.webContents.capturePage().catch(() => null)
+  await new Promise((r) => setTimeout(r, 160))
+  const desktop = await captureDesktop()
+  const winImg = window && !window.isEmpty() ? window : null
+  return {
+    desktop,
+    window: winImg ?? desktop ?? nativeImage.createEmpty(),
+  }
+}
+
+/**
+ * 把窗口摆到「屏幕左上角贴边」的位置：y=0 让顶边与屏幕顶边对齐，
+ * x 留一点空隙好让左边框在整屏画面里可见（用来对照圆角与阴影）。
+ */
+function placeForShot(win: BrowserWindow): void {
+  try {
+    const d = screen.getPrimaryDisplay()
+    const w = win.getBounds()
+    const margin = 56
+    win.setBounds({
+      x: Math.min(margin, Math.max(0, d.size.width - w.width)),
+      // 上移 1px：无边框窗口在非整数缩放（110%/125%）下，窗口矩形最上面那一行是
+      // Windows 的非客户区（画的是窗口后面的桌面），客户区从第 2 行才开始。
+      // 窗口贴屏幕顶边时那一行就会露成"软件上方的一条空白/桌面色带"，
+      // 把窗口整体上移 1px 让它落到屏幕外，顶栏第一行就真正贴着屏幕顶边。
+      y: -1,
+      width: w.width,
+      height: Math.min(w.height, d.size.height - 8),
+    })
+  } catch {
+    /* 位置只影响截图观感，失败不阻断 */
+  }
+}
+
+/**
+ * 截图状态表。
+ *
+ * `wallpaper=` 必须显式写：壁纸选择是持久化在 IndexedDB 里的，不写就会继承上一轮
+ * 运行留下的那张，同一个状态在不同机器/不同轮次拍出来不一样。
+ * `none` 表示"没有设置壁纸"——这是最重要的一条基线（浅色白底 / 深色黑底全靠它兜）。
+ */
 const SHOT_STATES: ShotState[] = [
-  { q: '?theme=dark', name: '01-home-flip' },
-  { q: '?anim=fade&theme=dark', name: '02-anim-fade' },
-  { q: '?anim=zoom&theme=dark', name: '03-anim-zoom' },
-  { q: '?anim=slide&theme=dark', name: '04-anim-slide' },
-  { q: '?anim=stack&theme=dark', name: '05-anim-stack' },
-  { q: '?material=acrylic&theme=dark', name: '06-material-acrylic' },
-  { q: '?material=mica&theme=dark', name: '07-material-mica' },
-  { q: '?theme=light&wallpaper=mist&material=solid', name: '08-light-mist-solid' },
-  { q: '?open=seed-01&theme=dark', name: '09-book-detail' },
-  { q: '?open=seed-01&cover=1&theme=dark', name: '10-cover-editor' },
-  { q: '?tab=settings&theme=dark', name: '11-settings' },
-  { q: '?tab=settings&sec=wallpaper&theme=dark', name: '12-settings-we' },
-  { q: '?anim=flip', wait: 700, keepFirst: true, name: '13-mid-flip' },
-  { q: '?anim=stack', wait: 950, keepFirst: true, name: '14-mid-stack' },
-  { q: '?wp=1&theme=dark', name: '15-wallpaper-popover' },
-  { q: '?wallpaper=mist&theme=dark', name: '16-bright-wallpaper-dark' },
-  { q: '?theme=light&wallpaper=mist&material=frosted', name: '17-light-mist-frosted' },
-  { q: '?scroll=1&theme=dark', name: '18-nav-scrolled' },
-  { q: '?tab=notes&theme=dark', name: '19-tab-notes' },
-  { q: '?fit=contain&wallpaper=mist&theme=dark', name: '21-fit-contain' },
-  { q: '?theme=light&wallpaper=dusk', name: '22-nav-light-dusk' },
-  { q: '?theme=light&wallpaper=deep', name: '23-nav-light-deep' },
-  { q: '?tab=profile&sec=webdav&theme=dark', name: '24-webdav-import' },
-  { q: '?tab=profile&sec=webdav&netpan=baidu&theme=dark', name: '25-baidu-import' },
-  { q: '?theme=light', name: '26-light-chips' },
+  { q: '?theme=dark&wallpaper=dark', name: '01-home-flip' },
+  { q: '?anim=fade&theme=dark&wallpaper=dark', name: '02-anim-fade' },
+  { q: '?anim=zoom&theme=dark&wallpaper=dark', name: '03-anim-zoom' },
+  { q: '?anim=slide&theme=dark&wallpaper=dark', name: '04-anim-slide' },
+  { q: '?anim=stack&theme=dark&wallpaper=dark', name: '05-anim-stack' },
+  { q: '?material=acrylic&theme=dark&wallpaper=dark', name: '06-material-acrylic' },
+  { q: '?material=mica&theme=dark&wallpaper=dark', name: '07-material-mica' },
+  { q: '?theme=light&wallpaper=light&material=solid', name: '08-light-mist-solid' },
+  { q: '?open=seed-01&theme=dark&wallpaper=dark', name: '09-book-detail' },
+  { q: '?open=seed-01&cover=1&theme=dark&wallpaper=dark', name: '10-cover-editor' },
+  { q: '?tab=settings&theme=dark&wallpaper=dark', name: '11-settings' },
+  { q: '?tab=settings&sec=wallpaper&theme=dark&wallpaper=dark', name: '12-settings-we' },
+  { q: '?anim=flip&wallpaper=dark', wait: 700, keepFirst: true, name: '13-mid-flip' },
+  { q: '?anim=stack&wallpaper=dark', wait: 950, keepFirst: true, name: '14-mid-stack' },
+  { q: '?wp=1&theme=dark&wallpaper=dark', name: '15-wallpaper-popover' },
+  { q: '?wallpaper=light&theme=dark', name: '16-bright-wallpaper-dark' },
+  { q: '?theme=light&wallpaper=light&material=frosted', name: '17-light-mist-frosted' },
+  { q: '?scroll=1&theme=dark&wallpaper=dark', name: '18-nav-scrolled' },
+  { q: '?tab=notes&theme=dark&wallpaper=dark', name: '19-tab-notes' },
+  { q: '?theme=dark&wallpaper=none', name: '20-dark-nowall' },
+  { q: '?fit=contain&wallpaper=light&theme=dark', name: '21-fit-contain' },
+  { q: '?theme=light&wallpaper=dark', name: '22-nav-light-dusk' },
+  { q: '?theme=light&wallpaper=none&material=solid', name: '23-nav-light-nowall' },
+  { q: '?tab=profile&sec=webdav&theme=dark&wallpaper=dark', name: '24-webdav-import' },
+  { q: '?tab=profile&sec=webdav&netpan=baidu&theme=dark&wallpaper=dark', name: '25-baidu-import' },
+  { q: '?theme=light&wallpaper=none', name: '26-light-chips' },
   { q: '?injectwp=1&theme=dark', name: '27-wallpaper-texture' },
   { q: '?injectwp=1&theme=light', name: '28-wallpaper-texture-light' },
   { q: '?injectwp=1&maximized=1', name: '29-maximized-wallpaper' },
+  { q: '?tab=profile&sec=appearance&theme=light&wallpaper=none', name: '30-light-settings-nowall' },
 ]
 
 async function waitRenderReady(win: BrowserWindow): Promise<void> {
@@ -2103,28 +2210,31 @@ async function runTopbarTest(): Promise<void> {
     out.push(`view ${view}`)
 
     // 桌面级截屏 → 裁到窗口矩形 → 逐行平均亮度（含 alpha 前的 RGB）
-    const disp = screen.getPrimaryDisplay()
-    const scale = disp.scaleFactor
-    const sources = await desktopCapturer.getSources({
-      types: ['screen'],
-      thumbnailSize: {
-        width: Math.round(disp.size.width * scale),
-        height: Math.round(disp.size.height * scale),
-      },
-    })
-    const full = sources[0].thumbnail
-    const crop = full.crop({
-      x: Math.round(b.x * scale),
-      y: Math.round(b.y * scale),
-      width: Math.min(Math.round(b.width * scale), full.getSize().width),
-      height: Math.min(Math.round(b.height * scale), full.getSize().height),
-    })
+    // 注意：要先把窗口摆到确定的贴顶位置再量 bounds，否则这里裁的是"初始尺寸"、
+    // 而窗口其实已经被后面的 setBounds 挪走/改小了，裁出来一片桌面（历史黑图就是这个原因）。
+    placeForShot(win)
+    await new Promise((r) => setTimeout(r, 700))
+    const b2 = win.getBounds()
+    const full = await captureDesktop()
     const shotDir = fs.existsSync(path.join(app.getAppPath(), 'screenshots'))
       ? path.join(app.getAppPath(), 'screenshots')
       : app.getPath('userData')
-    fs.writeFileSync(path.join(shotDir, 'topbar-desktop.png'), crop.toPNG())
     const contentShot = await win.webContents.capturePage()
     fs.writeFileSync(path.join(shotDir, 'topbar-content.png'), contentShot.toPNG())
+    const scale = screen.getPrimaryDisplay().scaleFactor
+    if (!full) {
+      out.push('desktop capture unavailable（屏幕采集被挡，请看 topbar-content.png）')
+      out.push('TOPBAR_FAIL')
+    } else {
+    const cropAt = (v: number, max: number) => Math.max(0, Math.min(v, max))
+    const crop = full.crop({
+      x: cropAt(Math.round(b2.x * scale), full.getSize().width - 2),
+      y: cropAt(Math.round(b2.y * scale), full.getSize().height - 2),
+      width: Math.min(Math.round(b2.width * scale), full.getSize().width - cropAt(Math.round(b2.x * scale), 0)),
+      height: Math.min(Math.round(b2.height * scale), full.getSize().height - cropAt(Math.round(b2.y * scale), 0)),
+    })
+    fs.writeFileSync(path.join(shotDir, 'topbar-desktop.png'), crop.toPNG())
+    out.push(`shotAt bounds=${b2.x},${b2.y},${b2.width},${b2.height} crop=${crop.getSize().width}x${crop.getSize().height} screen=${full.getSize().width}x${full.getSize().height}`)
 
     const bmp = crop.toBitmap()
     const w = crop.getSize().width
@@ -2158,8 +2268,12 @@ async function runTopbarTest(): Promise<void> {
           (x.tag === 'maximized' ? Math.abs(x.gapTop) <= 8 : x.gapTop === 0)
       )
     const okMenu = !menuBarVisible && menuItems === 0
-    out.push(`checks states=${okStates} menu=${okMenu}`)
-    out.push(okStates && okMenu ? 'TOPBAR_OK' : 'TOPBAR_FAIL')
+    // 窗口顶边必须落在屏幕第 0 行（允许 -1：placeForShot 会主动上移 1px 把非客户区那行
+    // 推出屏幕外），且窗口第 0 行就是顶栏——不能是桌面里的任何东西。
+    const okEdge = b2.y <= 0 && b2.y >= -2 && Math.abs(topAvg - barAvg) < 40
+    out.push(`checks states=${okStates} menu=${okMenu} edge=${okEdge} (topEdgeY=${b2.y})`)
+    out.push(okStates && okMenu && okEdge ? 'TOPBAR_OK' : 'TOPBAR_FAIL')
+    }
   } catch (e) {
     out.push(`ERROR ${String(e)}`)
   }
@@ -3619,7 +3733,8 @@ async function runMaterialCycle(initial: BrowserWindow): Promise<void> {
   app.exit(alive === 'window alive' ? 0 : 1)
 }
 
-async function runShots(win: BrowserWindow): Promise<void> {  const only = process.env.MOYU_SHOT_ONLY?.split(',').map((s) => s.trim()).filter(Boolean)
+async function runShots(win: BrowserWindow): Promise<void> {
+  const only = process.env.MOYU_SHOT_ONLY?.split(',').map((s) => s.trim()).filter(Boolean)
   const states = only && only.length ? SHOT_STATES.filter((s) => only.some((o) => s.name.startsWith(o))) : SHOT_STATES
   const renderer = path.join(__dirname, '../renderer/index.html')
   // 打包后 app.getAppPath() 指向 app.asar（只读），必须回退到 userData 再建目录
@@ -3630,6 +3745,14 @@ async function runShots(win: BrowserWindow): Promise<void> {  const only = proce
     outDir = app.getPath('userData')
     fs.mkdirSync(outDir, { recursive: true })
   }
+  // 窗口内容单独留一份：README/文档要的是"只有软件本身"的干净图，
+  // 整屏图留给人工核对窗口边界（顶边有没有贴齐屏幕顶边）。
+  const winDir = path.join(outDir, 'window')
+  try {
+    fs.mkdirSync(winDir, { recursive: true })
+  } catch {
+    /* 只影响文档用图，失败不阻断 */
+  }
   const errors: string[] = []
   win.webContents.on('console-message', (_e, level, message) => {
     if (level >= 3) errors.push(message)
@@ -3637,11 +3760,19 @@ async function runShots(win: BrowserWindow): Promise<void> {  const only = proce
   win.webContents.on('did-fail-load', (_e, code, desc) => {
     errors.push(`load-fail ${code} ${desc}`)
   })
+
+  // 整屏截图必须让窗口真的出现在桌面上：隐藏窗口不出现在屏幕帧里
+  if (!win.isVisible()) win.show()
+  placeForShot(win)
+  await new Promise((r) => setTimeout(r, 700))
+
+  let desktopOk = 0
+  let desktopFail = 0
   for (const st of states) {
     // 最大化状态：先真实最大化（触发硬件圆角内缩），截图后还原
     const wasMax = st.q.includes('maximized=1')
     if (wasMax) {
-      win.setBounds({ x: 80, y: 60, width: 1280, height: 820 })
+      win.setBounds({ x: 80, y: 0, width: 1280, height: 820 })
       win.maximize()
       await new Promise((r) => setTimeout(r, 600))
     }
@@ -3652,27 +3783,49 @@ async function runShots(win: BrowserWindow): Promise<void> {  const only = proce
       continue
     }
     let captured = 0
+    let shot: DesktopShot | null = null
     const attempts = st.keepFirst ? 1 : 3
     for (let attempt = 0; attempt < attempts && (st.keepFirst || captured < 20000); attempt++) {
       await new Promise((r) => setTimeout(r, st.wait ?? 1400))
       await waitRenderReady(win)
       try {
-        const img = await win.webContents.capturePage()
-        const png = img.toPNG()
+        const s = await captureShot(win)
+        const png = s.window.toPNG()
         if (png.length > captured) {
-          fs.writeFileSync(path.join(outDir, `${st.name}.png`), png)
+          shot = s
           captured = png.length
         }
       } catch (e) {
         errors.push(`${st.name}: capture error ${String(e)}`)
       }
     }
+    if (shot) {
+      // 整屏图是主产物：窗口与桌面同框，能直接看出顶边/左右边贴没贴齐
+      if (shot.desktop) {
+        fs.writeFileSync(path.join(outDir, `${st.name}.png`), shot.desktop.toPNG())
+        desktopOk++
+      } else {
+        // 屏幕采集被挡（部分远程/锁屏环境返回黑帧）：先退回窗口内容，避免整轮白跑
+        fs.writeFileSync(path.join(outDir, `${st.name}.png`), shot.window.toPNG())
+        desktopFail++
+      }
+      try {
+        fs.writeFileSync(path.join(winDir, `${st.name}.png`), shot.window.toPNG())
+      } catch {
+        /* 文档用图，失败忽略 */
+      }
+    }
     if (!st.keepFirst && captured < 20000) errors.push(`${st.name}: capture suspiciously small (${captured} bytes)`)
     if (wasMax) {
       win.unmaximize()
       await new Promise((r) => setTimeout(r, 300))
+      placeForShot(win)
     }
   }
+  const d = screen.getPrimaryDisplay()
+  console.log(
+    `SHOT_CAPTURE: desktop=${desktopOk} fallback=${desktopFail} display=${d.size.width}x${d.size.height}@${d.scaleFactor.toFixed(2)} win=${JSON.stringify(win.getBounds())}`
+  )
   console.log('SHOT_DONE')
   if (errors.length) {
     console.log('RENDER_ERRORS:')

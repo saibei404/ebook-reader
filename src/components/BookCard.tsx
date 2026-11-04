@@ -3,6 +3,7 @@ import { motion, useMotionValue, useSpring, useTransform } from 'motion/react'
 import type { Book } from '@/types/book'
 import { FORMAT_LABEL } from '@/types/book'
 import { useStore } from '@/store/useStore'
+import { openBookWithCover } from '@/lib/view-transition'
 import { IconTrash, IconImage } from './Icons'
 
 interface Props {
@@ -122,7 +123,7 @@ export function BookCard({
       /* layout（不是 position）：封面尺寸切换（小/中/大）时宽高一起补间，只是挪位的用不上 */
       layout
       whileHover={{ y: -10, scale: 1.035, transition: { type: 'spring', stiffness: 400, damping: 26 } }}
-      onClick={() => openBook(book.id)}
+      onClick={(e) => openBookWithCover(book.id, e.currentTarget as HTMLElement)}
       ref={cardRef}
       data-book-id={book.id}
       /* 必须始终可拖：否则第一本书永远发起不了 dragstart（dragging 只能由拖动本身产生） */

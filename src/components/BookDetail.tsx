@@ -6,6 +6,7 @@ import { formatSize } from '@/lib/format'
 import { bookmarksOfBook, deleteBookmark } from '@/lib/db'
 import type { Bookmark, Locator } from '@/types/book'
 import { nativeApi } from '@/lib/native'
+import { vtMorphActive } from '@/lib/view-transition'
 import { IconX, IconImage, IconShuffle, IconRefresh, IconTrash, IconBook } from './Icons'
 
 export function BookDetail() {
@@ -35,6 +36,11 @@ export function BookDetail() {
   }, [bookIdNow])
 
   if (!book) return null
+  // 由书架卡片点进来时走「共享元素」过渡：卡片封面已交给浏览器做形变，
+  // 这里就不能再跑翻卡入场，否则两个动画会叠在一起。
+  // 只在挂载时取一次：详情打开后书签是异步拉回来的，重新渲染时若再取值会变成 false，
+  // 导致 .vt-morph 类被摘掉（封面在过渡期间会跳一下）。useState 的惰性初始化正好冻结它。
+  const [morph] = useState(() => vtMorphActive())
   const coverUrl = (book.coverId ? covers[book.coverId] : null) ?? procCovers[book.id] ?? ''
   // 进度以 locator 为准（真实阅读位置），老数据回退 progress
   const pct = Math.round((book.locator?.percent ?? book.progress ?? 0) * 100)
@@ -42,14 +48,14 @@ export function BookDetail() {
   return (
     <motion.div
       className="detail-backdrop"
-      initial={{ opacity: 0 }}
+      initial={morph ? false : { opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       onClick={() => openBook(null)}
     >
       <motion.div
         className={`detail-panel mat-${settings.material}`}
-        initial={{ rotateY: 64, opacity: 0, scale: 0.92 }}
+        initial={morph ? false : { rotateY: 64, opacity: 0, scale: 0.92 }}
         animate={{ rotateY: 0, opacity: 1, scale: 1 }}
         exit={{ rotateY: 46, opacity: 0, scale: 0.95 }}
         transition={{ type: 'spring', stiffness: 240, damping: 26 }}
@@ -62,7 +68,7 @@ export function BookDetail() {
         <div className="detail-cover-col">
           <motion.img
             layoutId={`cover-${book.id}`}
-            className="detail-cover"
+            className={`detail-cover${morph ? ' vt-morph' : ''}`}
             src={coverUrl}
             alt={book.title}
             draggable={false}

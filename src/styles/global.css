@@ -2847,3 +2847,60 @@ code {
 .wp-panel .num-hint {
   margin-left: 0;
 }
+
+/* ========== 原生视图过渡（View Transitions） ==========
+   只给「内容区」和「封面」命名，不动侧栏/顶栏：切页时框架保持静止，
+   变化的部分做形变，视觉上更像同一个界面在换内容，而不是整屏重绘。 */
+.app-content {
+  view-transition-name: page;
+}
+
+::view-transition-group(page) {
+  animation-duration: 260ms;
+}
+
+::view-transition-old(page) {
+  animation: vt-page-out 150ms cubic-bezier(0.4, 0, 0.6, 1) both;
+}
+
+::view-transition-new(page) {
+  animation: vt-page-in 240ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+
+@keyframes vt-page-out {
+  to {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.997);
+  }
+}
+
+@keyframes vt-page-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.998);
+  }
+}
+
+/* 整屏（root）只做很短的一次淡变，避免和内容区的动画抢戏 */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 170ms;
+}
+
+/* 书架 → 详情：卡片封面与详情封面同名，浏览器会把它们当成同一个元素做形变 */
+.detail-cover.vt-morph {
+  view-transition-name: book-cover;
+}
+
+::view-transition-group(book-cover) {
+  animation-duration: 320ms;
+  animation-timing-function: cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
+  }
+}

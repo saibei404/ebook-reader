@@ -1,5 +1,6 @@
 import { motion } from 'motion/react'
 import { useStore } from '@/store/useStore'
+import { withViewTransition } from '@/lib/view-transition'
 import { IconLibrary, IconNote, IconUser, IconMoon, IconSun } from './Icons'
 
 const TABS = [
@@ -21,7 +22,7 @@ export function TabBar() {
             <button
               key={t.id}
               className={`tab-btn${active ? ' active' : ''}`}
-              onClick={() => setUI({ tab: t.id })}
+              onClick={() => withViewTransition(() => setUI({ tab: t.id }))}
             >
               {active && (
                 <motion.span

@@ -6,7 +6,8 @@ import { formatSize } from '@/lib/format'
 import { bookmarksOfBook, deleteBookmark } from '@/lib/db'
 import type { Bookmark, Locator } from '@/types/book'
 import { nativeApi } from '@/lib/native'
-import { vtMorphActive } from '@/lib/view-transition'
+import { vtMorphActive } from '@/lib/vt-book'
+import { withAsyncViewTransition } from '@/lib/vt'
 import { IconX, IconImage, IconShuffle, IconRefresh, IconTrash, IconBook } from './Icons'
 
 export function BookDetail() {
@@ -35,12 +36,46 @@ export function BookDetail() {
     }
   }, [bookIdNow])
 
-  if (!book) return null
+  // 注意：这些 hook 必须放在 `if (!book) return null` 之前，否则书目为空时
+  // 提前 return 会让 hook 数量变化，React 直接报 "Rendered fewer hooks than expected"。
   // 由书架卡片点进来时走「共享元素」过渡：卡片封面已交给浏览器做形变，
   // 这里就不能再跑翻卡入场，否则两个动画会叠在一起。
-  // 只在挂载时取一次：详情打开后书签是异步拉回来的，重新渲染时若再取值会变成 false，
-  // 导致 .vt-morph 类被摘掉（封面在过渡期间会跳一下）。useState 的惰性初始化正好冻结它。
+  // 只在挂载时取一次：详情打开后书签是异步拉回来的，重新渲染时若再取值会变成 false。
   const [morph] = useState(() => vtMorphActive())
+  const coverRef = useRef<HTMLImageElement>(null)
+  // `.vt-morph` 提供的 view-transition-name 只在「打开详情」那一次过渡里需要。
+  // 一直挂着的话，之后任意一次切页过渡都会把这个封面当成孤立共享元素做退出动画。
+  const [named, setNamed] = useState(() => vtMorphActive())
+  useEffect(() => {
+    if (!named) return
+    const timer = window.setTimeout(() => setNamed(false), 480)
+    return () => window.clearTimeout(timer)
+  }, [named])
+
+  if (!book) return null
+
+  /**
+   * 换封面时走异步视图过渡：旧封面与新封面是同一个 <img>，挂上名字后浏览器会做交叉形变，
+   * 而不是硬切。必须用异步版——读文件/写库都在 Promise 里，浏览器的「新快照」要等它 resolve。
+   */
+  const swapCover = async (run: () => Promise<void> | void) => {
+    const el = coverRef.current
+    if (!el) {
+      await run()
+      return
+    }
+    const prev = el.style.viewTransitionName
+    el.style.viewTransitionName = 'book-cover'
+    try {
+      await withAsyncViewTransition(run)
+    } finally {
+      // 取当前 ref，而不是闭包里的旧节点：React 有可能在 run() 里换掉 <img>。
+      // 两个都清，避免旧节点残留名字导致后续过渡匹配错元素。
+      const cur = coverRef.current
+      if (cur) cur.style.viewTransitionName = prev
+      if (cur && cur !== el) el.style.viewTransitionName = prev
+    }
+  }
   const coverUrl = (book.coverId ? covers[book.coverId] : null) ?? procCovers[book.id] ?? ''
   // 进度以 locator 为准（真实阅读位置），老数据回退 progress
   const pct = Math.round((book.locator?.percent ?? book.progress ?? 0) * 100)
@@ -68,7 +103,8 @@ export function BookDetail() {
         <div className="detail-cover-col">
           <motion.img
             layoutId={`cover-${book.id}`}
-            className={`detail-cover${morph ? ' vt-morph' : ''}`}
+            ref={coverRef}
+            className={`detail-cover${named ? ' vt-morph' : ''}`}
             src={coverUrl}
             alt={book.title}
             draggable={false}
@@ -78,10 +114,10 @@ export function BookDetail() {
               <IconImage size={14} />
               <span>更换封面</span>
             </button>
-            <button className="tbtn sm" onClick={() => void randomizeCover(book.id)} title="随机生成一张封面">
+            <button className="tbtn sm" onClick={() => void swapCover(() => randomizeCover(book.id))} title="随机生成一张封面">
               <IconShuffle size={14} />
             </button>
-            <button className="tbtn sm" onClick={() => void resetCover(book.id)} title="恢复默认封面">
+            <button className="tbtn sm" onClick={() => void swapCover(() => resetCover(book.id))} title="恢复默认封面">
               <IconRefresh size={14} />
             </button>
           </div>
@@ -92,7 +128,7 @@ export function BookDetail() {
             style={{ display: 'none' }}
             onChange={(e) => {
               const f = e.target.files?.[0]
-              if (f) void setCoverFromFile(book.id, f)
+              if (f) void swapCover(() => setCoverFromFile(book.id, f))
               e.target.value = ''
             }}
           />

@@ -990,3 +990,72 @@ body {
   gap: 8px;
   margin-top: 8px;
 }
+
+/* 面板开合走原生视图过渡：容器从右上角轻微缩放淡入，比直接闪现更有"层"感。
+   关键：view-transition-name 必须全局唯一。四个 .epub-nav（目录/搜索/书签/笔记）
+   是各自 toggle 的，可以同时打开，共用同一个名字会让浏览器直接中止整段过渡。
+   所以按面板给四个名字，再用逗号选择器共享同一组动画规则。 */
+.epub-nav.toc-panel    { view-transition-name: rd-toc; }
+.epub-nav.search-panel { view-transition-name: rd-search; }
+.epub-nav.bm-panel     { view-transition-name: rd-bookmark; }
+.epub-nav.anno-panel   { view-transition-name: rd-anno; }
+.reader-settings       { view-transition-name: rd-settings; }
+
+::view-transition-group(rd-toc),
+::view-transition-group(rd-search),
+::view-transition-group(rd-bookmark),
+::view-transition-group(rd-anno),
+::view-transition-group(rd-settings) {
+  animation-duration: 220ms;
+  transform-origin: 100% 0;
+}
+
+::view-transition-old(rd-toc),
+::view-transition-old(rd-search),
+::view-transition-old(rd-bookmark),
+::view-transition-old(rd-anno),
+::view-transition-old(rd-settings) {
+  animation: rd-panel-out 120ms ease both;
+}
+
+::view-transition-new(rd-toc),
+::view-transition-new(rd-search),
+::view-transition-new(rd-bookmark),
+::view-transition-new(rd-anno),
+::view-transition-new(rd-settings) {
+  animation: rd-panel-in 200ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+
+@keyframes rd-panel-out {
+  to {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.985);
+  }
+}
+
+@keyframes rd-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.97);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(rd-toc),
+  ::view-transition-group(rd-search),
+  ::view-transition-group(rd-bookmark),
+  ::view-transition-group(rd-anno),
+  ::view-transition-group(rd-settings),
+  ::view-transition-old(rd-toc),
+  ::view-transition-old(rd-search),
+  ::view-transition-old(rd-bookmark),
+  ::view-transition-old(rd-anno),
+  ::view-transition-old(rd-settings),
+  ::view-transition-new(rd-toc),
+  ::view-transition-new(rd-search),
+  ::view-transition-new(rd-bookmark),
+  ::view-transition-new(rd-anno),
+  ::view-transition-new(rd-settings) {
+    animation: none !important;
+  }
+}

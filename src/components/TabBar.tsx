@@ -1,6 +1,6 @@
 import { motion } from 'motion/react'
 import { useStore } from '@/store/useStore'
-import { withViewTransition } from '@/lib/view-transition'
+import { withViewTransition } from '@/lib/vt'
 import { IconLibrary, IconNote, IconUser, IconMoon, IconSun } from './Icons'
 
 const TABS = [

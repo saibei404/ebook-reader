@@ -25,6 +25,7 @@ import './reader.css'
 import { NumberField } from '@/components/NumberFields'
 import { useAutoAnimate } from '@formkit/auto-animate/react'
 import { ScrollProgress } from '@/components/ui/ScrollProgress'
+import { withViewTransition } from '@/lib/vt'
 
 // 重引擎按格式懒加载：TXT/FB2 用户不会为 epub.js / pdf.js 付出首屏成本
 const EpubReader = lazy(() => import('./formats/EpubReader').then((m) => ({ default: m.EpubReader })))
@@ -676,20 +677,20 @@ export function ReaderApp() {
           {label || (pagesInfo ? `${pagesInfo.pages} 页` : '')} · {Math.round(percent * 100)}%
         </div>
         {toc.length > 0 && (
-          <button className={`rb${tocOpen ? ' active' : ''}`} onClick={() => setTocOpen((v) => !v)} title="目录">
+          <button className={`rb${tocOpen ? ' active' : ''}`} onClick={() => withViewTransition(() => setTocOpen((v) => !v))} title="目录">
             目录
           </button>
         )}
         <button
           className={`rb${searchOpen ? ' active' : ''}`}
-          onClick={() => setSearchOpen((v) => !v)}
+          onClick={() => withViewTransition(() => setSearchOpen((v) => !v))}
           title="搜索全文"
         >
           搜索
         </button>
         <button
           className={`rb${bmOpen ? ' active' : ''}`}
-          onClick={() => setBmOpen((v) => !v)}
+          onClick={() => withViewTransition(() => setBmOpen((v) => !v))}
           title="书签"
         >
           书签{bookmarks.length > 0 ? ` ${bookmarks.length}` : ''}
@@ -697,7 +698,7 @@ export function ReaderApp() {
         <button
           className={`rb${annoOpen ? ' active' : ''}`}
           onClick={() => {
-            setAnnoOpen((v) => !v)
+            withViewTransition(() => setAnnoOpen((v) => !v))
             setSel(null)
           }}
           title="高亮与笔记"
@@ -706,7 +707,7 @@ export function ReaderApp() {
         </button>
         <button
           className={`rb${settingsOpen ? ' active' : ''}`}
-          onClick={() => setSettingsOpen((v) => !v)}
+          onClick={() => withViewTransition(() => setSettingsOpen((v) => !v))}
           title="阅读设置"
         >
           排版
@@ -820,7 +821,7 @@ export function ReaderApp() {
 
       {/* 目录 */}
       {tocOpen && toc.length > 0 && (
-        <div className="epub-nav">
+        <div className="epub-nav toc-panel">
           {toc.map((t, i) => (
             <button
               key={`${t.href}-${i}`}

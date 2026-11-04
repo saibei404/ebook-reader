@@ -3,7 +3,7 @@ import { motion, useMotionValue, useSpring, useTransform } from 'motion/react'
 import type { Book } from '@/types/book'
 import { FORMAT_LABEL } from '@/types/book'
 import { useStore } from '@/store/useStore'
-import { openBookWithCover } from '@/lib/view-transition'
+import { openBookWithCover } from '@/lib/vt-book'
 import { IconTrash, IconImage } from './Icons'
 
 interface Props {

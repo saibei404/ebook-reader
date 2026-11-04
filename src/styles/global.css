@@ -580,10 +580,14 @@ code {
 
 .tbtn.danger {
   color: var(--err);
+  background: color-mix(in srgb, var(--err) 9%, transparent);
+  border-color: color-mix(in srgb, var(--err) 20%, transparent);
 }
 
 .tbtn.danger:hover {
-  background: color-mix(in srgb, var(--err) 16%, transparent);
+  background: color-mix(in srgb, var(--err) 18%, transparent);
+  border-color: color-mix(in srgb, var(--err) 34%, transparent);
+  color: var(--err);
 }
 
 .tbtn.sm {
@@ -1292,10 +1296,18 @@ code {
   accent-color: var(--accent);
 }
 
+/*
+ * 底部操作区。
+ * 它撑满弹层宽度，**不能**有卡片底/边框/backdrop-filter ——
+ * 之前被上面的批量选择器误加了一层亚克力底，结果弹层底部多出一条与背景不同的色带，
+ * 按钮的灰色底再叠上去就发浑。这里只用一条与信息行一致的 hairline 做分区。
+ */
 .detail-actions {
   display: flex;
   gap: 10px;
-  margin-top: 14px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-1);
 }
 
 .cover-tip {
@@ -1997,7 +2009,6 @@ code {
 .webdav-row,
 .wp-item-main,
 .shortcut-row,
-.detail-actions,
 .kv-list li {
   background: var(--acrylic-card);
   backdrop-filter: blur(calc(var(--glass-blur) * 0.8)) saturate(var(--glass-sat));

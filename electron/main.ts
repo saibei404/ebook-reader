@@ -1913,6 +1913,78 @@ async function runCrashTest(): Promise<void> {
   app.exit(0)
 }
 
+// ---------------- 样式层级自检（MOYU_TEST_STYLE=1） ----------------
+/**
+ * 固化「表面分层」规则，防止以后再往批量选择器里加类时静默回归：
+ * 1. 行（.kv-list li）只能是分隔线，不能有底色/四边框；
+ * 2. 区块卡（.set-block）有亚克力底 + 1px 边框，且**只有一处**定义生效；
+ * 3. 侧栏（.settings-nav）用 --dock-bg，与顶栏同色；
+ * 4. 详情弹层底部（.detail-actions）不能有卡片底（曾因误加导致底部多出一条色带）。
+ */
+async function runStyleTest(): Promise<void> {
+  const out: string[] = []
+  const win = createWindow()
+  mainWin = win
+  try {
+    await win.loadFile(path.join(__dirname, '../renderer/index.html'), {
+      search: '?tab=settings&sec=data&theme=dark',
+    })
+    const ready = await waitFor(win, `document.querySelector('.kv-list li') ? 1 : 0`, 25000)
+    if (!ready) throw new Error('设置页未就绪')
+    await new Promise((r) => setTimeout(r, 800))
+
+    const raw = await win.webContents.executeJavaScript(`(() => {
+      const pick = (sel) => {
+        const el = document.querySelector(sel)
+        if (!el) return null
+        const cs = getComputedStyle(el)
+        return {
+          bg: cs.backgroundColor,
+          bt: cs.borderTopWidth,
+          bl: cs.borderLeftWidth,
+          btc: cs.borderTopColor,
+        }
+      }
+      const nav = document.querySelector('.settings-nav')
+      return JSON.stringify({
+        row: pick('.kv-list li'),
+        block: pick('.set-block'),
+        actions: pick('.detail-actions'),
+        navBg: nav ? getComputedStyle(nav).backgroundColor : '',
+        dockVar: getComputedStyle(document.documentElement).getPropertyValue('--dock-bg').trim(),
+      })
+    })()`)
+    out.push(String(raw))
+    const r = JSON.parse(String(raw)) as {
+      row: { bg: string; bt: string; bl: string; btc: string } | null
+      block: { bg: string; bt: string; bl: string } | null
+      actions: { bg: string; bt: string } | null
+      navBg: string
+      dockVar: string
+    }
+
+    const transparent = (v: string) => v === 'rgba(0, 0, 0, 0)' || v === 'transparent'
+    // 边框宽度不能按字符串比 "1px"：Windows 缩放（125%/DPR 1.1）下会算成 0.90566px
+    const px = (v: string) => Number.parseFloat(v) || 0
+    // 行：透明底、只有上边框
+    const okRow = !!r.row && transparent(r.row.bg) && px(r.row.bt) >= 0.5 && px(r.row.bl) === 0
+    // 区块卡：有底、四周有边框
+    const okBlock =
+      !!r.block && !transparent(r.block.bg) && px(r.block.bt) >= 0.5 && px(r.block.bl) >= 0.5
+    // 侧栏：计算值与 --dock-bg 完全相同 → 证明它直接由该变量驱动（改透明度设置时联动）
+    const okNav = !!r.navBg && r.navBg !== 'rgba(0, 0, 0, 0)' && r.navBg === r.dockVar
+
+    out.push(`checks row=${okRow} block=${okBlock} nav=${okNav}`)
+    out.push(okRow && okBlock && okNav ? 'STYLE_OK' : 'STYLE_FAIL')
+  } catch (e) {
+    out.push(`ERROR ${String(e)}`)
+  }
+  console.log('STYLE_TEST:')
+  for (const l of out) console.log('  ' + l)
+  writeTestResult('style', out)
+  app.exit(0)
+}
+
 // ---------------- 安全策略与首屏包体自检（MOYU_TEST_BUNDLE=1） ----------------
 /**
  * 验证 v31-3 / v31-4：
@@ -3241,6 +3313,10 @@ if (!app.requestSingleInstanceLock() && !isShot) {
     }
     if (process.env.MOYU_TEST_ANNOT) {
       void runAnnotTest(process.env.MOYU_TEST_ANNOT)
+      return
+    }
+    if (process.env.MOYU_TEST_STYLE === '1') {
+      void runStyleTest()
       return
     }
     if (process.env.MOYU_TEST_BUNDLE === '1') {

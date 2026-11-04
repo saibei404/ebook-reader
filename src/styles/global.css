@@ -1406,14 +1406,6 @@ code {
   max-width: 720px;
 }
 
-.set-block {
-  padding: 20px 22px;
-  border-radius: 16px;
-  background: var(--surf-1);
-  border: 1px solid var(--border-1);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-}
 
 .set-block h3 {
   font-size: 15px;
@@ -1848,7 +1840,6 @@ code {
   gap: 4px;
   max-height: 320px;
   overflow-y: auto;
-  border: 1px solid var(--border-1);
   border-radius: 12px;
   padding: 6px;
 }
@@ -1995,28 +1986,49 @@ code {
 
 
 /* ========== 设置页：侧栏与顶栏同色 + 全选单亚克力（2026-10-25） ========== */
-/* 右侧设置导航与上方 Dock 完全同参数（同底色/同透明度/同模糊，设置改变时经 --dock-bg 联动） */
+/* 右侧设置导航：与上方 Dock 同参数（同底色/同透明度，经 --dock-bg 联动），不加边框 */
 .settings-nav {
   background: var(--dock-bg);
   border-radius: var(--radius-window);
   padding: 12px 10px;
 }
 
-/* 设置页所有选单卡片：亚克力半透明 + 磨砂 */
+/*
+ * 设置页表面按语义分三层，不再用一条批量选择器一网打尽。
+ *
+ * 原来把「区块」和「行」混在一起设成同一套卡片底，导致两个问题：
+ * 1. 层级消失：.webdav-row / .wp-item-main 在 .webdav-list 这类容器卡里又各套一层卡，
+ *    变成「卡片套卡片」，用户看不出哪个是容器、哪个是条目；
+ * 2. 误伤分隔线：.kv-list li 本该只有一条 border-top，被批量规则盖成四周都有边框。
+ */
+
+/* 第 1 层：区块卡（承载一组内容） */
 .set-block,
-.settings-nav,
-.webdav-list,
-.webdav-row,
-.wp-item-main,
-.shortcut-row,
-.kv-list li {
+.webdav-list {
   background: var(--acrylic-card);
   backdrop-filter: blur(calc(var(--glass-blur) * 0.8)) saturate(var(--glass-sat));
   -webkit-backdrop-filter: blur(calc(var(--glass-blur) * 0.8)) saturate(var(--glass-sat));
   border: 1px solid var(--acrylic-card-border);
 }
 
-/* set-block 作为大区块：保留分组间距感 */
+/* 第 2 层：侧栏 —— 见上方 .settings-nav 的外观规则（--dock-bg 联动） */
+
+/* 第 3 层：行 —— 不加卡片底，靠 hover 与 hairline 区分 */
+.webdav-row,
+.wp-item-main,
+.shortcut-row,
+.kv-list li {
+  background: transparent;
+  border: 0;
+}
+
+/* .kv-list li 保留自己的分隔线（上面的 border:0 会把它清掉，这里补回） */
+.kv-list li {
+  border-top: 1px solid var(--border-1);
+}
+
+/* set-block 只管尺寸：底色/边框/模糊由上方「第 1 层：区块卡」统一提供，
+   避免同一条视觉规则在两处定义、靠书写顺序决胜负 */
 .set-block {
   border-radius: 16px;
   padding: 18px 20px;

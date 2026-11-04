@@ -48,6 +48,10 @@ export function TabBar() {
         >
           {settings.theme === 'dark' ? <IconSun size={16} /> : <IconMoon size={16} />}
         </button>
+        {/* 版本号常驻：截图/反馈时不用去「关于」确认跑的是哪个包（多次遇到拿旧 exe 报同一个问题） */}
+        <span className="tabbar-ver" title="当前版本">
+          v{__APP_VERSION__}
+        </span>
       </div>
     </div>
   )

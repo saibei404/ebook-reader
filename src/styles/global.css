@@ -424,6 +424,15 @@ code {
   padding: 8px;
 }
 
+/* 版本号：常驻在侧栏最底部，截图一眼能认出跑的是哪个包 */
+.tabbar-ver {
+  padding: 0 10px 2px;
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  color: var(--text-3);
+  user-select: text;
+}
+
 /* ========== 顶栏 / NavigationBar ========== */
 .topbar {
   display: flex;
@@ -1995,6 +2004,10 @@ code {
   }
   .foot-btn {
     justify-content: center;
+  }
+  /* 侧栏收成 64px 时版本号放不下，隐藏（「关于」里仍可见） */
+  .tabbar-ver {
+    display: none;
   }
 }
 

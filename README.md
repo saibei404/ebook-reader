@@ -118,3 +118,7 @@ ebook-reader/
 - **索引**：`_archive/README.md`（批次总表）、`_archive/archive-report.json`（机器可读报告）。
 - **原位产物**：因 `release/win-unpacked` 被工作区监视器锁定（EPERM），首批采用「复制并保留原件」降级，原件已整体迁至 `D:/moyu-oldbuilds/originals-2026-10-25/`。
 - **临时缓存**：portable 运行时的解压缓存位于 `%TEMP%\ns*.tmp` 与 `%TEMP%\3L8*`（每个约 284–357MB），异常退出后会残留，定期清理可保 C 盘空间（便携程序闪退的高频根因）。
+
+## 许可
+
+[MIT](./LICENSE) © 2026 saibei404

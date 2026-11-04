@@ -1,8 +1,8 @@
 {
   "name": "moyu-reader",
   "version": "0.1.0",
-  "description": "墨鱼阅读器 - 本地优先的跨平台阅读器 MVP（首页展示模块）",
-  "author": "WorkBuddy",
+  "description": "墨鱼阅读器 —— 本地优先的跨平台电子书阅读器（Electron + React + TypeScript）",
+  "author": "saibei404",
   "license": "MIT",
   "main": "out/main/main.js",
   "scripts": {
@@ -66,5 +66,13 @@
     "portable": {
       "artifactName": "墨鱼阅读器-0.1.0-portable.exe"
     }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/saibei404/ebook-reader.git"
+  },
+  "homepage": "https://github.com/saibei404/ebook-reader#readme",
+  "bugs": {
+    "url": "https://github.com/saibei404/ebook-reader/issues"
   }
 }

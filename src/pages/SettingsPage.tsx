@@ -18,6 +18,7 @@ import {
   IconPlus,
   IconTrash,
   IconCloud,
+  IconRefresh,
 } from '@/components/Icons'
 
 const SECTIONS = [
@@ -746,6 +747,121 @@ function DataSection() {
   )
 }
 
+type UpdateResult = {
+  ok: boolean
+  current: string
+  latest?: string
+  hasUpdate?: boolean
+  url: string
+  name?: string
+  body?: string
+  publishedAt?: string
+  assets?: { name: string; size: number; downloadUrl: string }[]
+  error?: string
+}
+
+const RELEASES_PAGE = 'https://github.com/saibei404/ebook-reader/releases/latest'
+
+/**
+ * 关于页·检查更新（v41）。仅手动触发：点一次才连一次 GitHub，不后台请求、不自动下载安装，
+ * 守住「无后台请求」的隐私承诺。失败（国内网络受限/限流）一律给「手动前往发布页」兜底，
+ * 不弹错误框、不阻塞。Web 预览无原生桥时只渲染一个手动链接。
+ */
+function UpdateChecker() {
+  const [busy, setBusy] = useState(false)
+  const [info, setInfo] = useState<UpdateResult | null>(null)
+
+  const check = async () => {
+    if (!nativeApi?.checkUpdate || busy) return
+    setBusy(true)
+    try {
+      setInfo(await nativeApi.checkUpdate())
+    } catch {
+      setInfo({ ok: false, current: __APP_VERSION__, url: RELEASES_PAGE, error: '检查失败，可手动前往发布页' })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const open = (url?: string) => void nativeApi?.openExternal(url || RELEASES_PAGE)
+
+  if (!nativeApi) {
+    return (
+      <div className="update-check">
+        <a className="tbtn" href={RELEASES_PAGE} target="_blank" rel="noreferrer">
+          <IconCloud size={14} />
+          <span>前往发布页查看新版</span>
+        </a>
+      </div>
+    )
+  }
+
+  const best = info?.assets?.[0]
+  const downloadUrl = best?.downloadUrl || info?.url || RELEASES_PAGE
+
+  return (
+    <div className="update-check">
+      <div className="wp-actions">
+        <button className="tbtn" onClick={() => void check()} disabled={busy}>
+          <IconRefresh size={14} />
+          <span>{busy ? '正在检查…' : '检查更新'}</span>
+        </button>
+        {info?.ok && !info.hasUpdate && (
+          <span className="update-badge ok">
+            <IconCheck size={13} />
+            已是最新版本
+          </span>
+        )}
+        {info?.ok && info.hasUpdate && <span className="update-badge new">发现新版本 v{info.latest}</span>}
+      </div>
+
+      {info && !info.ok && (
+        <p className="update-msg err">
+          {info.error}{' '}
+          <button className="link-btn" onClick={() => open(info.url)}>
+            手动前往发布页
+          </button>
+        </p>
+      )}
+
+      {info?.ok && !info.hasUpdate && (
+        <p className="update-msg">
+          当前 v{info.current} · 已发布 v{info.latest ?? '—'}
+        </p>
+      )}
+
+      {info?.ok && info.hasUpdate && (
+        <div className="update-new">
+          {info.name && <p className="update-title">{info.name}</p>}
+          <p className="update-msg">
+            {info.publishedAt ? `发布于 ${info.publishedAt.slice(0, 10)}` : ''}
+            {best ? `${info.publishedAt ? ' · ' : ''}推荐 ${best.name}（${formatSize(best.size)}）` : ''}
+          </p>
+          <div className="wp-actions">
+            <button className="tbtn primary" onClick={() => open(downloadUrl)}>
+              <IconCloud size={14} />
+              <span>下载新版</span>
+            </button>
+            <button className="link-btn" onClick={() => open(info.url)}>
+              查看发布页
+            </button>
+          </div>
+          {info.body && (
+            <details className="update-notes">
+              <summary>更新说明</summary>
+              <pre>{info.body}</pre>
+            </details>
+          )}
+        </div>
+      )}
+
+      <p className="set-desc">
+        仅在你点击时连接 GitHub 检查一次，不后台请求、不自动下载安装；网络受限时可手动前往发布页。
+      </p>
+    </div>
+  )
+}
+
 function AboutSection() {
   const { toast } = useStore()
   return (
@@ -758,12 +874,12 @@ function AboutSection() {
         <ul className="kv-list">
           <li>
             <span>版本</span>
-            <span>{__APP_VERSION__}（功能完整版 · v32 基线）</span>
+            <span>{__APP_VERSION__}</span>
           </li>
           <li>
             <span>支持格式</span>
             <span>
-              EPUB / PDF / TXT / MD / FB2 / DOCX / CBZ 七种可直接阅读；MOBI / AZW3 / CBR 导入时会提示转换
+              TXT / MD / EPUB / PDF / FB2 / DOCX / DOC / CBZ / CBR / AZW3 / AZW / MOBI 十二种可直接阅读
             </span>
           </li>
           <li>
@@ -789,6 +905,7 @@ function AboutSection() {
             <span>Electron 45 · React 18 · TypeScript · Vite · epub.js · pdf.js · IndexedDB</span>
           </li>
         </ul>
+        <UpdateChecker />
         <div className="wp-actions">
           <button
             className="tbtn"

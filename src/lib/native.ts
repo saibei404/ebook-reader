@@ -48,6 +48,19 @@ export interface MoyuAPI {
   onReaderCrashed(cb: () => void): () => void
   recreateWindow(): void
   openExternal(url: string): Promise<void>
+  /** 手动检查更新（仅关于页触发；主进程发 GitHub 请求，失败也返回发布页兜底 URL） */
+  checkUpdate(): Promise<{
+    ok: boolean
+    current: string
+    latest?: string
+    hasUpdate?: boolean
+    url: string
+    name?: string
+    body?: string
+    publishedAt?: string
+    assets?: { name: string; size: number; downloadUrl: string }[]
+    error?: string
+  }>
   setBossKey(accel: string): Promise<boolean>
   webdavList(p: { url: string; path: string; username: string; password: string }): Promise<{
     ok: boolean

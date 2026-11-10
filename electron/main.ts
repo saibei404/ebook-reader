@@ -5,6 +5,7 @@ import { Readable } from 'node:stream'
 import { log, logError, logFilePath, readRecentLogs, environmentSnapshot } from './logger'
 import { davList, davDownload } from './netpan'
 import { convertCbr, convertDoc, convertMobi, convDir } from './convert'
+import { checkUpdate } from './update'
 import {
   baiduStartAuth,
   baiduPollAuth,
@@ -15,6 +16,16 @@ import {
 } from './baidu'
 
 const isShot = process.argv.includes('--shot')
+
+/**
+ * 压力自检 novt 组：用 Chromium 开关强制 prefers-reduced-motion，
+ * 使 motionAllowed() 返回 false、所有 View Transitions 退回同步更新。
+ * 必须在 app ready 之前 appendSwitch，ready 之后再改无效。
+ * （不用 CDP Emulation.setEmulatedMedia：attach 调试器后 executeJavaScript 会持续超时。）
+ */
+if ((process.env.MOYU_TEST_STRESS ?? '').endsWith('|novt')) {
+  app.commandLine.appendSwitch('force-prefers-reduced-motion')
+}
 
 /**
  * 书籍本地文件协议：moyu-file://f/<base64url(绝对路径)>
@@ -825,6 +836,8 @@ function registerIPC(): void {
       await shell.openExternal(url)
     }
   })
+  // 仅手动触发：关于页点「检查更新」才发一次 GitHub 请求，不做启动静默检查（守隐私承诺）
+  ipcMain.handle('moyu:check-update', () => checkUpdate())
   ipcMain.handle('moyu:webdav-list', (_e, p: { url: string; path: string; username: string; password: string }) =>
     davList(p.url, p.path, p.username, p.password)
   )
@@ -1004,6 +1017,8 @@ const SHOT_STATES: ShotState[] = [
   // 浅色弹层/笔记页：表面叠得最多、最容易出现"白字压白底"的两个界面
   { q: '?open=seed-01&theme=light&wallpaper=none', name: '33-light-detail' },
   { q: '?tab=notes&theme=light&wallpaper=none', name: '34-light-notes' },
+  // 关于页·检查更新入口（v41）：确认 UpdateChecker 挂载无渲染错误
+  { q: '?tab=settings&sec=about&theme=dark&wallpaper=dark', name: '35-settings-about' },
 ]
 
 async function waitRenderReady(win: BrowserWindow): Promise<void> {
@@ -3305,6 +3320,251 @@ async function runReaderCrashTest(bookPath: string): Promise<void> {
   app.exit(0)
 }
 
+// ---------------- 阅读窗口压力自检（MOYU_TEST_STRESS="<path>|<rounds>|<vt|novt>"） ----------------
+/**
+ * 复现「大书 + 面板开关」引发的渲染进程原生崩溃（STATUS_BREAKPOINT / 0x80000003）。
+ *
+ * 为什么需要它：真实崩溃日志只能拿到退出码，且都发生在用户点开书面板之后；
+ * 单纯打开大 TXT（MOYU_TEST_READER / PERF）并不崩。所以这里反复
+ * 「滚动推进 + 开关 目录/搜索/书签/笔记/排版 面板」，把 View Transitions
+ * 对大 DOM 拍快照这条路径压出来。
+ *
+ * mode=novt 用 Chromium 开关 --force-prefers-reduced-motion 使 motionAllowed() 返回 false
+ * （VT 全部退回同步更新）。同一本书跑 vt / novt 两轮即可判定崩溃是否由 VT 引起。
+ * 开关必须在 app ready 前 appendSwitch（见模块顶部）；loadFile 后再 matchMedia 探针确认生效。
+ */
+async function runStressTest(bookPath: string, rounds: number, disableVt: boolean): Promise<void> {
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+  const out: string[] = []
+  const renderer = path.join(__dirname, '../renderer/reader.html')
+  const query = `?testpath=${encodeURIComponent(bookPath)}`
+  let crashes = 0
+  let win: BrowserWindow | null = null
+
+  const makeWin = async (): Promise<BrowserWindow> => {
+    const w = new BrowserWindow({
+      width: 1200,
+      height: 900,
+      frame: false,
+      show: true, // 隐藏窗口拿不到合成帧，VT 快照路径也就压不出来
+      backgroundColor: '#111113',
+      webPreferences: {
+        preload: path.join(__dirname, '../preload/preload.js'),
+        contextIsolation: true,
+        sandbox: false,
+        backgroundThrottling: false,
+      },
+    })
+    w.webContents.on('render-process-gone', (_e, details) => {
+      crashes += 1
+      const line = `CRASH #${crashes} ${JSON.stringify(details)}`
+      out.push(line)
+      logCrash(`stress ${line}`)
+    })
+    await w.loadFile(renderer, { search: query })
+    if (disableVt) {
+      // 开关已在模块加载时 appendSwitch；这里确认它真的生效，
+      // 否则「novt 组」其实还在跑 VT，A/B 结论就是假的。
+      const rm = await w.webContents
+        .executeJavaScript(`window.matchMedia('(prefers-reduced-motion: reduce)').matches`)
+        .catch(() => 'probe-failed')
+      out.push(`reduced-motion=${String(rm)}`)
+    }
+    return w
+  }
+
+  /** 渲染进程崩了之后 executeJavaScript 会 reject；这里统一兜住并报告存活状态 */
+  const probe = async (js: string): Promise<string> => {
+    if (!win || win.isDestroyed()) return 'window-gone'
+    try {
+      return String(
+        await Promise.race([
+          win.webContents.executeJavaScript(js),
+          sleep(8000).then(() => 'probe-timeout'),
+        ])
+      )
+    } catch (err) {
+      return `probe-error: ${String(err).slice(0, 120)}`
+    }
+  }
+
+  try {
+    win = await makeWin()
+    await sleep(4500)
+    out.push(
+      `mode=${disableVt ? 'novt' : 'vt'} content=${await probe(
+        `!!document.querySelector('.text-scroll, .epub-host iframe, .pdf-scroll canvas, .comic-scroll img')`
+      )}`
+    )
+    // 采集 DOM 规模指标，为 vt.ts 的大文档守卫选阈值（root/body 滚动高度 vs 内部滚动容器 vs 节点数）
+    out.push(
+      `metrics ${await probe(`(() => {
+        const root = document.documentElement, body = document.body
+        const sc = document.querySelector('.text-scroll, .pdf-scroll, .comic-scroll, .epub-container')
+        return JSON.stringify({
+          rootScrollH: root ? root.scrollHeight : -1,
+          bodyScrollH: body ? body.scrollHeight : -1,
+          innerScrollH: sc ? sc.scrollHeight : -1,
+          nodes: document.getElementsByTagName('*').length,
+        })
+      })()`)}`
+    )
+
+    for (let r = 0; r < rounds; r++) {
+      // 崩溃后重建窗口继续压，才能统计「N 轮里崩了几次」而不是首轮就终止
+      if (!win || win.isDestroyed()) {
+        await sleep(600)
+        win = await makeWin()
+        await sleep(4500)
+      }
+      const action = r % 8
+      // 隐藏/恢复走主进程：摸鱼热键就是这条路径，且阅读窗关了后台节流，
+      // 隐藏期间 rAF/计时器仍在跑，合成器状态变化最剧烈。
+      if (action === 7) {
+        try {
+          win.hide()
+          await sleep(320)
+          win.show()
+          await sleep(320)
+        } catch {
+          /* 窗口可能已崩毁，下一轮会重建 */
+        }
+        out.push(`r${r} hide/show alive=${!!win && !win.isDestroyed()}`)
+        continue
+      }
+      const step = await probe(`(async () => {
+        const sc = document.querySelector('.text-scroll, .pdf-scroll, .comic-scroll')
+        const act = ${action}
+        const clickTitle = (t) => {
+          const b = document.querySelector('button[title="' + t + '"]')
+          if (b) b.click()
+          return b
+        }
+        let kind = 'panel'
+        let name = ''
+        let opened = false
+        if (act <= 4) {
+          const titles = ['目录', '搜索全文', '书签', '高亮与笔记', '阅读设置']
+          name = titles[act]
+          if (sc) sc.scrollTo(0, Math.min(sc.scrollHeight - sc.clientHeight, sc.scrollTop + 1500))
+          const b = clickTitle(name)
+          await new Promise((res) => setTimeout(res, 160))
+          // 用按钮自身的 active 类判定，比猜面板容器类名可靠
+          opened = !!b && b.className.includes('active')
+          if (b) b.click()
+        } else if (act === 5) {
+          // 主题轮换：大 DOM 下整页配色重绘 + VT，是崩溃日志时间段内的可疑操作
+          kind = 'theme'
+          const sb = clickTitle('阅读设置')
+          await new Promise((res) => setTimeout(res, 160))
+          const themes = ['纸白', '米黄', '夜间', '跟随']
+          name = themes[${r} % themes.length]
+          const tb = Array.from(document.querySelectorAll('.rs-seg button, button')).find(
+            (x) => (x.textContent || '').trim() === name
+          )
+          if (tb) { tb.click(); opened = true }
+          await new Promise((res) => setTimeout(res, 200))
+          if (sb) sb.click()
+        } else {
+          // 大跳滚动：触发章节窗口批量卸载/挂载（惰性 HTML + 前缀偏移二分）
+          kind = 'jump'
+          if (sc) {
+            const max = sc.scrollHeight - sc.clientHeight
+            const target = Math.round(max * ([0.25, 0.5, 0.75, 0.95][${r} % 4]))
+            sc.scrollTo(0, target)
+            name = String(target)
+            opened = true
+          }
+        }
+        await new Promise((res) => setTimeout(res, 120))
+        return JSON.stringify({
+          round: ${r},
+          kind,
+          name,
+          ok: opened,
+          paragraphs: document.querySelectorAll('.text-scroll p').length,
+          scrollTop: sc ? Math.round(sc.scrollTop) : -1,
+        })
+      })()`)
+      // 只留采样轮与异常轮，避免输出爆炸
+      if (r % 8 === 0 || /gone|error|timeout/.test(step) || /"ok":false/.test(step)) {
+        out.push(`r${r} ${step.slice(0, 200)}`)
+      }
+      await sleep(200)
+    }
+
+    const mem = app
+      .getAppMetrics()
+      .map((m) => `${m.type}=${Math.round((m.memory?.workingSetSize ?? 0) / 1024)}MB`)
+      .join(' ')
+    out.push(`mem: ${mem}`)
+    out.push(
+      crashes === 0
+        ? `STRESS_OK(rounds=${rounds}, mode=${disableVt ? 'novt' : 'vt'}, crashes=0)`
+        : `STRESS_CRASH(rounds=${rounds}, mode=${disableVt ? 'novt' : 'vt'}, crashes=${crashes})`
+    )
+  } catch (err) {
+    out.push(`ERROR ${String(err)}`)
+    out.push('STRESS_FAIL')
+  }
+  console.log(`STRESS_TEST[${disableVt ? 'novt' : 'vt'}]:`)
+  for (const l of out) console.log('  ' + l)
+  writeTestResult(`stress-${disableVt ? 'novt' : 'vt'}`, out)
+  if (win && !win.isDestroyed()) win.destroy()
+  app.exit(0)
+}
+
+// ---------------- 更新检查 UI 自检（MOYU_TEST_UPDATE_UI=1） ----------------
+/**
+ * 验证渲染层→preload→主进程→回渲染的完整链路：关于页点「检查更新」后必须出现结果
+ * （徽标/文案/错误兜底之一）。IPC 通道名写错会让点击静默无反应，单测与 IPC 自检都抓不到，
+ * 只有真实点击能暴露。结果分支取决于网络（成功→已是最新/有新版；失败→错误+手动链接）。
+ */
+async function runUpdateUiTest(): Promise<void> {
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+  const out: string[] = []
+  const win = createWindow()
+  mainWin = win
+  try {
+    await win.loadFile(path.join(__dirname, '../renderer/index.html'), {
+      search: '?theme=dark&tab=settings&sec=about',
+    })
+    await sleep(2500)
+    const clicked = await win.webContents.executeJavaScript(`(() => {
+      const b = Array.from(document.querySelectorAll('button')).find((x) => (x.textContent || '').includes('检查更新'))
+      if (!b) return 'no-button'
+      b.click()
+      return 'clicked'
+    })()`)
+    out.push(`click=${clicked}`)
+    let result = ''
+    for (let i = 0; i < 70; i++) {
+      result = String(
+        await win.webContents.executeJavaScript(`(() => {
+          const badge = document.querySelector('.update-badge')
+          if (badge) return 'badge:' + badge.textContent.trim()
+          const err = document.querySelector('.update-msg.err')
+          if (err) return 'err:' + err.textContent.trim().slice(0, 60)
+          const msg = document.querySelector('.update-msg')
+          if (msg) return 'msg:' + msg.textContent.trim().slice(0, 60)
+          return ''
+        })()`)
+      )
+      if (result) break
+      await sleep(300)
+    }
+    out.push(`result=${result || 'none'}`)
+    out.push(clicked === 'clicked' && result ? 'UPDATE_UI_OK' : 'UPDATE_UI_FAIL')
+  } catch (e) {
+    out.push(`ERROR ${String(e)}`)
+    out.push('UPDATE_UI_FAIL')
+  }
+  console.log('UPDATE_UI_TEST:')
+  for (const l of out) console.log('  ' + l)
+  writeTestResult('update-ui', out)
+  app.exit(0)
+}
+
 // ---------------- 跨窗口可见性自检（MOYU_TEST_CROSSWIN=<testpath>） ----------------
 /**
  * 验证真实链路：主窗口写入书架的书籍，阅读窗口能否读到。
@@ -4281,8 +4541,48 @@ if (!app.requestSingleInstanceLock() && !isShot) {
       void runOpenLatencyTest(process.env.MOYU_TEST_OPENLATENCY)
       return
     }
+    if (process.env.MOYU_TEST_STRESS) {
+      const raw = process.env.MOYU_TEST_STRESS
+      const parts = raw.split('|')
+      const rounds = Math.max(1, Math.min(500, Number.parseInt(parts[1] ?? '40', 10) || 40))
+      void runStressTest(parts[0] ?? '', rounds, (parts[2] ?? 'vt') === 'novt')
+      return
+    }
     if (process.env.MOYU_TEST_READERCRASH) {
       void runReaderCrashTest(process.env.MOYU_TEST_READERCRASH)
+      return
+    }
+    if (process.env.MOYU_TEST_UPDATE === '1' || process.env.MOYU_TEST_UPDATE === 'fail') {
+      // 验证更新检查 IPC 链路：'1' 真实拉 GitHub latest release；'fail' 注入不可达地址验证兜底
+      void (async () => {
+        const forceFail = process.env.MOYU_TEST_UPDATE === 'fail'
+        const r = await checkUpdate(forceFail ? 'https://invalid.moyu-update-test.local/releases/latest' : undefined)
+        const verdict = !r.ok
+          ? forceFail
+            ? r.url.includes('releases/latest') && r.error
+              ? 'UPDATE_FALLBACK_OK'
+              : 'UPDATE_FALLBACK_FAIL'
+            : 'UPDATE_FALLBACK'
+          : r.hasUpdate
+            ? 'UPDATE_AVAILABLE'
+            : 'UPDATE_CURRENT'
+        const lines = [
+          `current=${r.current} latest=${r.latest ?? '-'} hasUpdate=${String(r.hasUpdate)}`,
+          `url=${r.url}`,
+          `assets=${(r.assets ?? []).map((a) => `${a.name}(${a.size})`).join(', ') || '-'}`,
+          r.error ? `error=${r.error}` : `name=${r.name ?? '-'}`,
+          JSON.stringify(r),
+          verdict,
+        ]
+        console.log('UPDATE_TEST:')
+        for (const l of lines) console.log('  ' + l)
+        writeTestResult('update', lines)
+        app.exit(0)
+      })()
+      return
+    }
+    if (process.env.MOYU_TEST_UPDATE_UI === '1') {
+      void runUpdateUiTest()
       return
     }
     if (process.env.MOYU_TEST_READER) {

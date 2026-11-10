@@ -5,10 +5,11 @@
  * 阅读器是独立入口，不该因为想用一个过渡就把整个 zustand store 打进它的包里。
  * 所以这个模块不 import 任何应用状态，只依赖浏览器 API。
  *
- * 三条降级路径（任一命中就退回同步更新，功能完全不受影响）：
+ * 四条降级路径（任一命中就退回同步更新，功能完全不受影响）：
  *   1. 环境不支持 startViewTransition；
  *   2. 用户开了系统「减少动态效果」（prefers-reduced-motion）；
- *   3. 过渡启动时抛异常。
+ *   3. 正文滚动容器过大（超大书/PDF/漫画，见 contentTooLargeForVT）；
+ *   4. 过渡启动时抛异常。
  */
 
 import { flushSync } from 'react-dom'
@@ -26,9 +27,39 @@ export function viewTransitionSupported(): boolean {
   return typeof document !== 'undefined' && typeof (document as DocWithVT).startViewTransition === 'function'
 }
 
+/**
+ * 大文档守卫（稳定性收口，v41）。
+ *
+ * 实测：阅读窗打开 6.37MB TXT（正文滚动高度 ~6.45M px）时，每次面板开关都让
+ * startViewTransition 强制同步布局并对整页拍快照，渲染进程内存翻倍——
+ * 80 轮压力 A/B：VT 开 Tab=446MB vs VT 关 Tab=210MB，两组均未崩但内存差 2.1×。
+ * 这是历史原生崩溃 STATUS_BREAKPOINT(0x80000003) 最可疑的诱因：大 DOM 下
+ * 快照/合成内存压力叠加快速连点。超过阈值即退回同步更新（本就是降级路径，
+ * 功能零损失，只少一段 cross-fade），把内存压回 ~210MB 并移除该崩溃向量。
+ *
+ * 为什么量内部滚动容器而非 documentElement：阅读窗 root/body 只有视口高（实测 936px），
+ * 正文在 .text-scroll 等内部容器里滚，必须量它才反映真实内容规模；节点数也不行
+ * （惰性挂载初期仅 1575 节点，但估算滚动高度已 6.45M px）。这些类名是渲染层 DOM 契约
+ * （main.ts 自检同样引用），不是应用状态——本模块依旧不 import store，零 bundle 成本。
+ * 阈值 20000px ≈ 22 屏：主界面书架/详情、小书阅读器远低于此（动效保留），
+ * 超大书/PDF/长漫画远高于此（自动降级）。
+ */
+const VT_MAX_CONTENT_HEIGHT = 20000
+function contentTooLargeForVT(): boolean {
+  if (typeof document === 'undefined') return false
+  const root = document.documentElement
+  let h = Math.max(root?.scrollHeight ?? 0, document.body?.scrollHeight ?? 0)
+  const sc = document.querySelector<HTMLElement>(
+    '.text-scroll, .pdf-scroll, .comic-scroll, .epub-container, .epub-view',
+  )
+  if (sc) h = Math.max(h, sc.scrollHeight)
+  return h > VT_MAX_CONTENT_HEIGHT
+}
+
 export function motionAllowed(): boolean {
   if (!viewTransitionSupported() || typeof window === 'undefined') return false
-  return !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+  if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return false
+  return !contentTooLargeForVT()
 }
 
 /**

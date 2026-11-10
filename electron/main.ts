@@ -4378,6 +4378,19 @@ async function runShots(win: BrowserWindow): Promise<void> {
   placeForShot(win)
   await new Promise((r) => setTimeout(r, 700))
 
+  // 打包版（asar）首屏 loadFile 比 dev 慢：createWindow 的首屏导航可能仍在飞行，
+  // 此时直接发状态 1 的 loadFile 会把首屏导航 abort 成 -3（ERR_ABORTED），
+  // 首状态截图必失败（dev 因文件加载快而不暴露）。先等首屏导航落定再逐状态加载。
+  await new Promise<void>((resolve) => {
+    const wc = win.webContents
+    if (!wc.isLoading()) {
+      resolve()
+      return
+    }
+    wc.once('did-finish-load', () => resolve())
+    wc.once('did-fail-load', () => resolve())
+  })
+
   let desktopOk = 0
   let desktopFail = 0
   for (const st of states) {

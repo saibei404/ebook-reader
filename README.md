@@ -1,9 +1,9 @@
 # 墨鱼阅读器 · Moyu Reader
 
-本地优先的跨平台电子阅读器——十一种格式可读（TXT/MD/EPUB/PDF/FB2/DOCX/DOC/CBZ/CBR/AZW3/AZW/MOBI），带位置记忆、书签、高亮与笔记、全篇搜索、备份导入导出，以及「摸鱼」场景必备的老板键与托盘常驻。
+本地优先的跨平台电子阅读器——十二种格式可读（TXT/MD/EPUB/PDF/FB2/DOCX/DOC/CBZ/CBR/AZW3/AZW/MOBI），带位置记忆、书签、高亮与笔记、全篇搜索、备份导入导出，以及「摸鱼」场景必备的老板键与托盘常驻。
 
-> 当前基线 **v40（0.10.0）**：界面语言切换（简中/繁中/英/日/韩，i18n 接口）+ 阅读器大模型翻译（自备 OpenAI 兼容 API）+ 详情弹层亚克力化与打开零延迟（lazy chunk 空闲预取）+ 设置页二级项圆角卡片化；
-> v31 补齐错误兜底、CSP、首屏拆分与拖拽导入，v32 重做排版与设置交互（数值步进/输入、主题双向同步、内置壁纸、TXT 正文排版）。单测 138 例。
+> 当前基线 **v41（0.11.0）**：稳定性收口（阅读窗大文档 View Transitions 内存守卫 + 崩溃自愈/兼容模式重启）+ 关于页「检查更新」（手动触发、GitHub Releases 版本比对、一键下载、网络受限手动兜底）；
+> v40 界面语言切换（五语 i18n）+ 阅读器大模型翻译，v31 补齐错误兜底、CSP、首屏拆分与拖拽导入，v32 重做排版与设置交互。单测 149 例。
 
 ## 下载
 
@@ -22,8 +22,8 @@
 npm install          # 安装依赖（Electron 二进制会自动下载）
 npm run dev          # 开发模式（热更新）
 npm run build        # 构建 main / preload / renderer
-npm run shot         # 自动化视觉测试：30 个状态的整屏截图到 screenshots/（窗口图在 screenshots/window/）
-npm test             # 单元测试（vitest，138 用例）
+npm run shot         # 自动化视觉测试：35 个状态的整屏截图到 screenshots/（窗口图在 screenshots/window/）
+npm test             # 单元测试（vitest，149 用例）
 npm run test:cov     # 单测 + 覆盖率（核心纯函数 > 80%）
 npm run dist:portable# 打包免安装 exe；另出 zip（解压即用，启动比便携版快）
 npm run dev:web      # 仅以前端方式预览（无原生能力）
@@ -45,11 +45,10 @@ npm run dev:web      # 仅以前端方式预览（无原生能力）
 | 首页书架 | 网格布局、全局搜索（导航栏）、筛选（全部/在读/未读/读完）、排序（最近/书名/作者/进度） |
 | 展示动效 | 翻页（3D rotateY 弹簧）、淡入、缩放、滑入、堆叠，切换即重播；卡片 hover 浮起 + 指针跟随 3D 倾斜 + 高光 |
 | 封面 | 14 本种子书程序化生成封面（canvas 渐变 + 书名 + 格式徽标，3:4）；支持本地图片更换、随机生成、恢复默认 |
-| 壁纸 | 三套预设（深海/暮色/晨雾）+ 本地导入（JPEG/PNG/WebP/GIF/BMP/AVIF/HEIC/TIFF + MP4/WebM/MOV，导入时解码探测）；五种显示模式（覆盖/填充/居中/适应/拉伸）+ 缩放，实时预览自动保存；遮罩浓度可调 |
+| 壁纸 | 仅本地导入（JPEG/PNG/WebP/GIF/BMP/AVIF/HEIC/TIFF + MP4/WebM/MOV，导入时解码探测），无内置预设；底纹叠加（可指定叠加方式与渲染层级）；亮度适配（浅色模式提亮、深色模式压暗）；五种显示模式（覆盖/填充/居中/适应/拉伸）+ 缩放；深浅色底层模式切换，切换有过渡且状态持久 |
 | 阅读内核 | 独立全屏 `reader.html` 窗口；TXT/MD/EPUB/PDF/FB2/DOCX/DOC/CBZ/CBR/AZW3/AZW/MOBI 十一种；二进制容器（AZW3/AZW/MOBI/CBR/DOC）统一在主进程解析，渲染层复用文本/漫画管线；DOCX 保留 Word 的颜色/字号/对齐；TXT 按中文阅读规范排版（首行缩进 2em、段间距、两端对齐）；排版面板用步进器（− 值 +，可直接输入）；目录；Esc 退出 |
 | 位置记忆 | `locator` 四类定位（CFI/页码/字符偏移/图片序号）+ 退出前 flush；EPUB 精确到章内文字（视口顶部 CFI）；跨窗口 BroadcastChannel 同步书架圆环 |
 | 书架分组 | 自定义分组、拖拽归组与组内排序、折叠、重命名、删除；分组随备份 JSON 一起走 |
-| 壁纸 | 内置两张系统壁纸（偏白 / 偏深，矢量随包，不占体积）+ 本地图片/视频；覆盖/适应/拉伸/平铺/居中五种模式 |
 | 主题联动 | 阅读器选纸白/米黄/夜间会同步主界面深浅色；主界面切换时阅读器在「跟随」模式下同频 |
 | 导入 | 文件选择 + **全窗口拖拽**（可一次拖多本，逐个导入并显示进度）；EPUB/CBZ/PDF 自动提取内嵌封面，其余用书名生成封面 |
 | 安全 | 渲染进程启用 CSP（`script-src 'self'`、禁 `object-src`、禁 `eval`）；首屏不含任何格式引擎 |
@@ -57,7 +56,8 @@ npm run dev:web      # 仅以前端方式预览（无原生能力）
 | 书签 / 高亮 / 笔记 | 书签面板与详情页列表；选中正文四色高亮（CSS Custom Highlight API，不改 DOM）；EPUB 用 CFI Range；备注可在阅读器或「笔记」页编辑；导出 Markdown |
 | 全篇搜索 | 文本类全篇搜索（章节索引 + 片段 + 点击精确跳转）；PDF/EPUB/CBZ 明确提示 |
 | 备份 | 单个 JSON 导出（书籍/位置/书签/笔记/设置）+ 导入合并去重（不倒退进度、重复导入幂等） |
-| 稳定性 | 全局错误兜底页（重载 / 导出诊断 / 关闭）；异常与静默失败落 `%APPDATA%/moyu-reader/logs/app.log`（2MB×5 滚动）；坏文件给明确提示而非空白页 |
+| 稳定性 | 全局错误兜底页（重载 / 导出诊断 / 关闭）；异常与静默失败落 `%APPDATA%/moyu-reader/logs/app.log`（2MB×5 滚动）；坏文件给明确提示而非空白页；阅读窗大文档 View Transitions 内存守卫（正文滚动高度超阈值自动退回同步更新，实测大书渲染内存 446→212MB）；阅读窗崩溃自愈（自动重开一次并保留位置，连续崩溃弹「兼容模式重启（关硬件加速）/ 再试 / 取消」）；Crashpad minidump 落盘 |
+| 更新检查 | 关于页手动「检查更新」→ GitHub Releases 版本比对（semver）→ 有新版给一键下载（win.zip 优先）+ 更新说明；仅点击时联网一次，不后台请求、不自动安装；网络受限给「手动前往发布页」兜底 |
 | 标签栏 | 书架 / 笔记 / 我的 三入口；磨砂玻璃 / 亚克力 / 云母 / 纯色四材质即时切换 |
 | 导航栏 | 透明默认，滚动 >24px 切换液态玻璃；品牌返回、页面标题、中央搜索、书签/导入/壁纸/主题快捷操作；支持性能降级与减少动态效果 |
 | 摸鱼键 | 默认 `Alt+X` 全局隐藏/恢复（可录制更改；录制时忽略单独修饰键，注册失败自动提示不写入）；关闭窗口 = 隐藏到托盘；托盘单击 toggle、右键菜单；阅读位置本地持久化，恢复后保持 |
@@ -67,14 +67,14 @@ npm run dev:web      # 仅以前端方式预览（无原生能力）
 
 ## 技术栈与选型说明
 
-- **Electron 33 + React 18 + TypeScript + Vite**：原技术选型为 Tauri 2 + React，因交付本机缺少 Rust / MSVC 工具链无法编译 Tauri 的 Rust 核心，故以 Electron 交付可运行 exe。**前端为 shell 无关的纯 Web 实现**（原生能力经 `src/lib/native.ts` 桥接层隔离，Web 模式自动降级），后续可平移回 Tauri。
+- **Electron 45 + React 18 + TypeScript + Vite**：原技术选型为 Tauri 2 + React，因交付本机缺少 Rust / MSVC 工具链无法编译 Tauri 的 Rust 核心，故以 Electron 交付可运行 exe。**前端为 shell 无关的纯 Web 实现**（原生能力经 `src/lib/native.ts` 桥接层隔离，Web 模式自动降级），后续可平移回 Tauri。
 - **Motion（motion/react）**：全部弹簧动效、layout FLIP（书架重排/详情页封面共享位移动画）、AnimatePresence 进出场。
 - **Zustand**：四类状态（books / settings / covers / wallpapers）+ UI 状态单 store。
 - **idb**：IndexedDB 封装。
 - 主进程职责：窗口（无边框 + 自定义标题栏）、托盘、全局快捷键、原生文件对话框。
 - **设计规范**：见 [DESIGN.md](./DESIGN.md)（组件参数分固定要求 / 可配置 / 建议默认三级）与 [DESIGN-GUIDE.md](./DESIGN-GUIDE.md)（设计取向与取舍）。
 - **阅读内核 / 格式矩阵**：见 [READER-FORMATS.md](./READER-FORMATS.md)；排期与已知缺陷见 [ROADMAP.md](./ROADMAP.md)。
-- **单元测试**：vitest + jsdom + fake-indexeddb，覆盖分章、字符偏移换算、Markdown 渲染、DOCX OOXML 转换、备份合并、DB 迁移（v2→v3）。
+- **单元测试**：vitest + jsdom + fake-indexeddb，覆盖分章、字符偏移换算、Markdown 渲染、DOCX OOXML 转换、备份合并、DB 迁移（v2→v3）、版本号 semver 比较。
 
 ## 目录结构
 
@@ -83,6 +83,8 @@ ebook-reader/
 ├── electron/
 │   ├── main.ts            # 主进程：窗口/托盘/老板键/IPC/协议/自检钩子
 │   ├── preload.ts         # contextBridge 安全桥
+│   ├── update.ts          # 更新检查（GitHub Releases 版本比对 + 下载兜底）
+│   ├── version.ts         # 纯 semver 比较（可单测）
 │   ├── netpan.ts          # WebDAV
 │   └── baidu.ts           # 百度网盘 OpenAPI
 ├── src/
@@ -93,16 +95,17 @@ ebook-reader/
 │   ├── lib/               # db(IDB) / backup / annotations / cover / seed / anim / native / perf
 │   ├── styles/global.css  # 主题变量 + 四套材质系统
 │   └── types/book.ts      # 契约层
-├── tests/                 # vitest 单测（text-utils / locator / backup / annotations / db）
+├── tests/                 # vitest 单测（text-utils / locator / backup / annotations / db / docx / version）
 ├── scripts/               # run.cjs / gen_* 样本生成 / probe-reader.cjs 诊断
 ├── test-fixtures/         # 各格式排版验证样本（含 doc/azw/cbr）
 ├── resources/             # 应用图标（ico/png/tray）
-└── screenshots/           # npm run shot 产出：整屏 30 张（含桌面，用来核对窗口边界）+ window/ 窗口内容 30 张
+└── screenshots/           # npm run shot 产出：整屏 35 张（含桌面，用来核对窗口边界）+ window/ 窗口内容 35 张
 ```
 
 ## 已知约束
 
-- 阅读内核（EPUB.js / PDF.js）尚未接入，详情页「开始阅读」为占位——属于下一阶段（增强期）范围。
+- 更新检查仅**手动触发**（守住「无后台请求」的隐私承诺），不做启动静默检查、不自动下载安装；GitHub 在国内常受限，检查失败时给「手动前往发布页」兜底。
+- 阅读窗超大文档（正文滚动高度超阈值，如数 MB 的 TXT/PDF）会自动关闭 View Transitions 过渡、退回同步更新，以控制渲染进程内存；正常尺寸视图的动效不受影响。
 - 窗口级原生亚克力仅 Windows 11 生效；Win10 下 CSS 亚克力（磨砂）效果不受影响。
 - Wallpaper Engine 需本机已安装（Steam 版）；未安装时同步功能不可用，界面会明确提示。
 - 若在某些终端中 `npm run dev` 打开空白窗口，是环境变量 `ELECTRON_RUN_AS_NODE=1` 导致 Electron 以 Node 模式运行；`npm run dev` 已内置清理，直接手动运行 electron 时需 `unset ELECTRON_RUN_AS_NODE`。
@@ -118,7 +121,7 @@ ebook-reader/
 - 仓库：`main` 分支，基线提交 `cf3bf81`（v23，2026-10-29）。
 - 忽略范围：`node_modules/`、`out/`、`release*/`、`dist-electron/`、`_archive/`、`screenshots/`、`*.exe|7z|blockmap`。
 - 提交规范（Conventional Commits）：`feat:` 新功能 / `fix:` 缺陷修复 / `refactor:` 重构 / `perf:` 性能 / `docs:` 文档 / `chore:` 工程杂务。
-- 每次交付前：`npm run typecheck` → `npm run build` → `npm run shot`（29 状态零渲染错误）→ 打包 → 归档到 `_archive/<日期>_v<N>_<主题>/`。
+- 每次交付前：`npm run typecheck` → `npm run build` → `npm run shot`（35 状态零渲染错误）→ 打包 → 归档到 `_archive/<日期>_v<N>_<主题>/`。
 - 建议粒度：一个可验证的功能点一个提交；修复类提交在描述里写明「现象 / 根因 / 修复」。
 
 ## 历史版本归档（_archive/）

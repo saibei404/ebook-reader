@@ -88,7 +88,7 @@ r_inner = r_outer - gap    →    --radius-nested: calc(--radius-container - --s
 |---|---|---|
 | 1 | 新建单一 token 层（role 语义、明暗双模、兼容映射） | `src/styles/tokens.css` |
 | 2 | 主界面移除 150 行旧 iOS 变量区，改由 token 层供给 | `src/styles/global.css` |
-| 3 | 4 种材质（磨砂/亚克力/云母/纯色）统一为不透明表面；移除全部 `backdrop-filter`、渐变、噪点、发光高光 | `global.css` |
+| 3 | 4 种材质（磨砂/亚克力/云母/纯色）统一为不透明表面；移除全部 `backdrop-filter`、渐变、噪点、发光高光。**组件表面（卡片/按钮/弹层）恒不透明；页面级底色（Dock、内容区）保留半透明让壁纸透出** | `global.css` |
 | 4 | 圆角 12 种散乱值 → 4 档 role token；间距 258 处 → 4px 栅格 token | `global.css`、`reader.css` |
 | 5 | 字号 85 处 → 7 档 role token | `global.css`、`reader.css` |
 | 6 | 时长/缓动统一 175/410ms + `--ease-standard`；去 spring、3D 倾斜、hover 放大、渐变文字 | `anim.ts`、`BookCard`、`BookDetail`、`TabBar`、`TopBar`、`NotesPage`、`PlaceholderPage` |
@@ -96,7 +96,9 @@ r_inner = r_outer - gap    →    --radius-nested: calc(--radius-container - --s
 | 8 | 全局 focus / pressed / disabled 状态规范 | `tokens.css` |
 
 **移除的产品特色**（按用户确认的「全面换成 Astryx 视觉」）：毛玻璃与壁纸透出、Liquid Glass 默认封面渐变、封面 3D 倾斜跟随、spring 弹性入场、详情翻卡式 3D 转场、文字微光。
-**保留的功能**：壁纸导入与透明度滑块（改为控制「表面 ←→ 底色」混合比，仍可见可调）、4 种材质选择（视觉不再分叉）、5 种入场动效（收敛到同一时长/缓动族）。
+**保留的功能**：壁纸导入与透明度滑块（页面级底色半透明，滑块直接控制 alpha；组件表面不受影响）、5 种入场动效（收敛到同一时长/缓动族）。
+**0.12.1 修正**：初版把页面级底色也做成了 100% 不透明，导致壁纸完全不可见；浅色下还有「白罩 + 白表面」双重漂白与暗壁纸安全底一刀切的问题。现改为——适配罩深浅分离（深色压暗重 / 浅色提亮轻），亮壁纸走半透明表面，暗壁纸安全底用 84% 高不透明而非全不透明，既透出壁纸又保住 AA 对比。
+**0.12.1 阅读器**：`color-scheme` 由 `ReaderApp` 按夜间/跟随主题动态设置，`reader.css` 补显式滚动条配色（`--r-fg` 派生），深色阅读主题下右侧滚动条不再退回浅色。
 
 ## 五、已知遗留（下一轮）
 

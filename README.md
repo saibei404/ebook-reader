@@ -2,7 +2,7 @@
 
 本地优先的跨平台电子阅读器——十二种格式可读（TXT/MD/EPUB/PDF/FB2/DOCX/DOC/CBZ/CBR/AZW3/AZW/MOBI），带位置记忆、书签、高亮与笔记、全篇搜索、备份导入导出，以及「摸鱼」场景必备的老板键与托盘常驻。
 
-> 当前基线 **v43（0.12.0）**：参考 [meta/astryx](https://github.com/meta/astryx) 重构设计语言 —— 单一 token 层（`src/styles/tokens.css`）、按 role 分层的颜色、同心圆角 4/8/12/28、4px 间距栅格、字号几何阶梯、175/410ms 标准动效；移除毛玻璃、壁纸透出、渐变与弹性动效。规范见 [`DESIGN-ASTRYX.md`](./DESIGN-ASTRYX.md)；
+> 当前基线 **v43（0.12.1）**：参考 [meta/astryx](https://github.com/meta/astryx) 重构设计语言 —— 单一 token 层（`src/styles/tokens.css`）、按 role 分层的颜色、同心圆角 4/8/12/28、4px 间距栅格、字号几何阶梯、175/410ms 标准动效；移除毛玻璃、壁纸透出、渐变与弹性动效。规范见 [`DESIGN-ASTRYX.md`](./DESIGN-ASTRYX.md)；
 > v42 修复超大惰性挂载 TXT 位置恢复漂移（115px → 16px）+ EPUB 彩色 CSS 主题适配，v41 稳定性收口 + 关于页「检查更新」，v40 五语 i18n + 阅读器大模型翻译，v31/v32 工程与排版基础。单测 161 例。
 
 ## 下载

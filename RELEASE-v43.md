@@ -58,3 +58,20 @@ Astryx 是 Meta 2026 年开源的 React 19 + StyleX 设计系统（Beta，内部
 - 版本号必须**先于** `npm run build` 修改（`__APP_VERSION__` 构建时注入）
 - 打包/自检必须 `env -u ELECTRON_RUN_AS_NODE`；冒烟用 `--user-data-dir` 隔离
 - 截图自检要单独跑，不要与多个 RESTORE 自检串在同一 shell 任务里连启 Electron（会资源竞争卡住）
+
+---
+
+## 七、0.12.1 回归修复（用户实拍反馈）
+
+初版 0.12.0 把「组件表面不透明」误推广到了**页面级底色**，引入两个回归：
+
+| 问题 | 根因 | 修复 |
+|---|---|---|
+| 浅色模式壁纸显示错误（看不到壁纸 / 一片白） | `--content-surface` / `--dock-bg` 改成 `color-mix` 完全不透明；适配罩从白/黑改成灰；浅色「安全底」规则把表面设成 100% 不透明；且「白罩 40% + 白表面 66%」两次叠加把壁纸彻底漂白 | 页面级底色恢复 `rgba(... var(--content-opacity))` 半透明；适配罩深浅分离（深色 `rgba(0,0,0,.85)` 压暗重、浅色 `rgba(255,255,255,.3)` 提亮轻）；暗壁纸安全底改为 84% 高不透明而非全不透明（底色仍约 rgb(212,218,229)，与 `#1b1d21` 文字对比 >9:1） |
+| 深色阅读主题右侧滚动条仍为浅色 | `reader.css` 的 `:root` 写死 `color-scheme: light`；夜间主题只换 `--r-bg/--r-fg`，从没改过 `color-scheme`；阅读窗口也没有滚动条样式 | `ReaderApp` 按 `dark` 动态设 `document.documentElement.style.colorScheme`；`reader.css` 补 `::-webkit-scrollbar*` 规则，滑块用 `--r-fg` 派生，自动跟随纸白/米黄/夜间 |
+
+验证：
+- `tsc` 干净 / 单测 161/161 / 构建通过 / 全量 35 状态 `NO_RENDER_ERRORS`（定向壁纸状态重跑亦全绿）
+- 窗口级截图人工核对：`27-wallpaper-texture`（深色）与 `28-wallpaper-texture-light`（浅色）壁纸纹理均可见，文字清晰、无异常偏色
+- 夜间主题探针 `SCROLLBAR_PROBE`：`clickedNight=true`、`inlineColorScheme=dark`、`computedColorScheme=dark`、`--r-fg=#e8e6e3`、thumb 规则为 `color-mix(in srgb, var(--r-fg) 22%, transparent)`
+- 组件表面（卡片/按钮/弹层）仍恒不透明，Astryx token 体系与克制观感未回退

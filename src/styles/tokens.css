@@ -114,8 +114,10 @@
    * 仍然可见可调，但不再透出壁纸（Astryx 表面一律不透明）。 */
   --bg-fallback: var(--color-background-body);
   --bg-base: var(--color-background-body);
-  --dock-bg: color-mix(in srgb, var(--color-background-surface) calc(var(--dock-opacity, 0.55) * 100%), var(--color-background-body));
-  --content-surface: color-mix(in srgb, var(--color-background-muted) calc(var(--content-opacity, 0.72) * 100%), var(--color-background-body));
+  /* 组件表面（卡片/按钮/弹层）恒不透明；只有页面级底色保留壁纸透出，
+     不透明度由设置滑块驱动。壁纸适配罩是图像 tint，用纯黑压暗。 */
+  --dock-bg: rgba(20, 21, 24, var(--dock-opacity, 0.55));
+  --content-surface: rgba(22, 23, 26, var(--content-opacity, 0.72));
   --detail-scrim: rgba(10, 11, 14, 0.48);
   --chip-surface: var(--color-neutral);
   --surf-1: var(--color-background-muted);
@@ -136,7 +138,9 @@
   --active-bg: var(--color-overlay-pressed);
   --scroll-thumb: var(--color-track);
   --code-bg: var(--color-neutral);
-  --wallpaper-scrim: #0d0e11;
+  /* 适配罩用半透明色：JS 还会再叠一层 opacity(wallpaperDim)。
+     深色压暗可以重，浅色提亮必须轻，否则白罩 + 白色表面两次叠加会把壁纸彻底漂白。 */
+  --wallpaper-scrim: rgba(0, 0, 0, 0.85);
   --accent: var(--color-accent);
   --accent-2: var(--color-accent);
   --ok: var(--color-success);
@@ -185,16 +189,25 @@
   --shadow-med: 0 4px 12px rgba(20, 24, 32, 0.1);
   --shadow-high: 0 12px 28px rgba(20, 24, 32, 0.14);
   --detail-scrim: rgba(28, 32, 40, 0.32);
-  --wallpaper-scrim: #f2f4f7;
+  /* 浅色：页面级底色半透明让壁纸透出；适配罩用纯白提亮（图像 tint） */
+  --dock-bg: rgba(233, 237, 244, var(--dock-opacity, 0.55));
+  --content-surface: rgba(251, 252, 253, var(--content-opacity, 0.66));
+  --wallpaper-scrim: rgba(255, 255, 255, 0.3);
 }
 
-/* 浅色安全底：不再依赖壁纸亮度分叉，表面恒为不透明浅色 */
+/* 浅色安全底：暗壁纸 / 亮度未知 / 无壁纸时提高页面级底色的不透明度，
+ * 避免半透明白叠在暗壁纸上混成中灰、黑字对比度崩掉（历史实拍问题）。
+ * 但不能设成 100% 不透明 —— 那会让壁纸彻底消失，表现为「壁纸显示不出来」。
+ * 84% 白 + 16% 暗壁纸时底色仍约 rgb(212,218,229)，与 #1b1d21 文字对比 >9:1，远超 AA。
+ * 组件表面（卡片/按钮/弹层）本来就恒不透明，这里只兜底 Dock 与内容区。 */
 [data-theme='light'][data-no-wallpaper='1'],
 [data-theme='light'][data-bg-lum='dark'],
 [data-theme='light'][data-bg-lum='unknown'],
 [data-theme='light'][data-native-acrylic='1'] {
   --bg-fallback: var(--color-background-body);
   --bg-base: var(--color-background-body);
+  --dock-bg: rgba(233, 237, 244, 0.86);
+  --content-surface: rgba(251, 252, 253, 0.84);
   --surface-card: var(--color-background-surface);
   --chip-surface: var(--color-neutral);
   --surface-inset: var(--color-neutral);

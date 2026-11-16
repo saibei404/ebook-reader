@@ -10,6 +10,23 @@
   color-scheme: light;
 }
 
+/* 滚动条显式配色：跟随 --r-fg，夜间主题下不会退回浅色原生滚动条。
+   color-scheme 由 ReaderApp 按主题动态设置，这里保证跨平台观感一致。 */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--r-fg) 22%, transparent);
+  border-radius: var(--radius-full);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--r-fg) 38%, transparent);
+}
+
 * {
   box-sizing: border-box;
 }

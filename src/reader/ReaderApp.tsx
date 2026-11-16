@@ -706,6 +706,12 @@ export function ReaderApp() {
   /** 有效深色：主题自身是夜间，或选了「跟随」且当前系统/主界面是深色 */
   const dark = prefs.theme === 'night' || (prefs.theme === 'system' && systemDark)
 
+  /* 原生控件/滚动条跟随阅读主题：reader.css 的 :root 写死 color-scheme: light，
+     夜间主题只换 --r-bg/--r-fg 并不会改它，右侧滚动条会一直是浅色。 */
+  useEffect(() => {
+    document.documentElement.style.colorScheme = dark ? 'dark' : 'light'
+  }, [dark])
+
   return (
     <div
       className={`reader-root${toolbarVisible ? ' toolbar-visible' : ''}`}

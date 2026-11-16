@@ -126,8 +126,12 @@ export function blockOf(node: Node, boundary: HTMLElement): HTMLElement | null {
 }
 
 /**
- * 把「元素内字符偏移」换算成滚动位置：先落到段落，再按段内字符比例微调。
- * 比「整章高度 × 比例」精确得多——同一段落内字符与像素近似线性，误差不超过一行。
+ * 把「元素内字符偏移」换算成滚动位置。
+ *
+ * 优先用折叠 Range 取该字符**所在行**的真实矩形：网页小说常见超长段落（数百像素高），
+ * 旧的「段落顶部 + 段内字符比例 × 段高」假设段内字符与像素线性，误差可达一整段
+ * （真实 6.37MB TXT 恢复漂移 115px）。Range 定位把误差压到一行以内。
+ * Range 拿不到有效矩形时（未布局 / iframe 限制）回退到原段落估算。
  */
 export function scrollTopForCharOffset(
   scroller: HTMLElement,
@@ -137,9 +141,23 @@ export function scrollTopForCharOffset(
 ): number | null {
   const pos = charOffsetToDom(section, Math.max(0, charOffsetInSection))
   if (!pos) return null
+  const sRect = scroller.getBoundingClientRect()
+
+  try {
+    const doc = section.ownerDocument
+    const range = doc.createRange()
+    range.setStart(pos.node, Math.max(0, Math.min(pos.offset, pos.node.data.length)))
+    range.collapse(true)
+    const rect = range.getClientRects()[0] ?? range.getBoundingClientRect()
+    if (rect && rect.height > 0 && Number.isFinite(rect.top)) {
+      return rect.top - sRect.top + scroller.scrollTop - pad
+    }
+  } catch {
+    /* 回退到段落估算 */
+  }
+
   const block = blockOf(pos.node, section)
   if (!block) return null
-  const sRect = scroller.getBoundingClientRect()
   const bRect = block.getBoundingClientRect()
   const base = bRect.top - sRect.top + scroller.scrollTop
   const inBlock = domToCharOffset(block, pos.node, pos.offset)

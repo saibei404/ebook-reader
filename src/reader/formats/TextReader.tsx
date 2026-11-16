@@ -9,6 +9,7 @@ import {
   estimateHeight,
   averagePxPerChar,
   visibleRange,
+  anchoredScrollTop,
   DEFAULT_PX_PER_CHAR,
   FIRST_BATCH_CHARS,
 } from '../chapter-window'
@@ -102,7 +103,7 @@ export function TextReader({
     heights: [],
     total: 0,
   })
-  const [, forceRender] = useState(0)
+  const [layoutVersion, forceRender] = useState(0)
 
   const totalChars = useMemo(
     () => chapters.reduce((s, c) => s + Math.max(1, c.charCount), 0),
@@ -151,6 +152,9 @@ export function TextReader({
   /* ---------- 布局测量 + 前缀偏移（必须早于位置恢复执行） ---------- */
   useLayoutEffect(() => {
     if (!chapters.length) return
+    const previousOffsets = layoutRef.current.offsets
+    const scroller = scrollRef.current
+    const previousScrollTop = scroller?.scrollTop ?? 0
     const heights: number[] = []
     const offsets: number[] = []
     const samples: { chars: number; height: number }[] = []
@@ -169,6 +173,14 @@ export function TextReader({
       acc += h
     }
     layoutRef.current = { offsets, heights, total: acc }
+
+    // 占位变实挂 / 每字高度校准都会改变上方章节高度。用章节前缀差补偿 scrollTop，
+    // 让视口仍停在同一章同一相对位置；初次恢复前的空布局不参与补偿。
+    if (scroller && restored.current && previousOffsets.length === chapters.length) {
+      const anchored = anchoredScrollTop(previousOffsets, offsets, previousScrollTop)
+      if (Math.abs(anchored - previousScrollTop) > 0.5) scroller.scrollTop = anchored
+    }
+
     const avg = averagePxPerChar(samples)
     // 校准上限 8 次：避免极端排版下「测量 → 重估 → 再测量」来回抖动
     if (Math.abs(avg - pxPerCharRef.current) / pxPerCharRef.current > 0.05 && calibrations.current < 8) {
@@ -176,7 +188,7 @@ export function TextReader({
       pxPerCharRef.current = avg
       forceRender((n) => n + 1)
     }
-  }, [mounted, chapters, fontSize, lineHeight, maxWidth])
+  }, [mounted, chapters, fontSize, lineHeight, maxWidth, layoutVersion])
 
   /* ---------- 把视口（含缓冲）内的占位章节挂载 ---------- */
   const ensureWindow = useCallback(() => {
@@ -269,7 +281,19 @@ export function TextReader({
       const chapter = chapters[idx]
       if (!chapter) return
       const ratio = Math.min(1, Math.max(0, (el.scrollTop - secTop) / secHeight))
-      const offset = Math.round(chapter.startChar + ratio * Math.max(1, chapter.charCount))
+      // 精确上报：章内字符密度并不均匀，「章高比例 × 章字符数」会把保存位置推偏，
+      // 恢复时再映射回像素便出现整段级漂移（真实 6.37MB TXT 曾 600→715）。
+      // 直接取视口顶部命中的文本节点折算章内字符偏移；拿不到 caret 时才回退比例估算。
+      let inChapter = Math.round(ratio * Math.max(1, chapter.charCount))
+      const sec = sectionRefs.current[idx]
+      const docWithCaret = el.ownerDocument as Document & {
+        caretRangeFromPoint?: (x: number, y: number) => Range | null
+      }
+      const caret = docWithCaret.caretRangeFromPoint?.(sRect.left + sRect.width / 2, sRect.top + 8)
+      if (caret && sec && sec.contains(caret.startContainer)) {
+        inChapter = domToCharOffset(sec, caret.startContainer, caret.startOffset)
+      }
+      const offset = Math.round(chapter.startChar + inChapter)
       const percent = Math.min(1, Math.max(0, offset / Math.max(1, totalChars)))
       const scrollRatio = Math.min(
         1,

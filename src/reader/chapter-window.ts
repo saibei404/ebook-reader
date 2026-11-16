@@ -103,6 +103,32 @@ export function indexAtPx(offsets: number[], y: number): number {
 }
 
 /**
+ * 占位高度变化后的滚动锚定补偿。
+ *
+ * 恢复/滚动过程中，可视区附近的占位章节会陆续替换为真实内容，前缀高度也会随实测校准。
+ * 若补偿不及时，当前章节会被上面章节的高度差推走（曾表现为大 TXT 恢复漂移约 115px）。
+ * 以「视口顶部附近所属章节」为锚：该章的新旧起始偏移差多少，scrollTop 就补多少。
+ */
+export function anchoredScrollTop(
+  previousOffsets: number[],
+  nextOffsets: number[],
+  scrollTop: number,
+  probe = 8
+): number {
+  if (
+    !previousOffsets.length ||
+    previousOffsets.length !== nextOffsets.length ||
+    !Number.isFinite(scrollTop)
+  ) {
+    return scrollTop
+  }
+  const idx = indexAtPx(previousOffsets, scrollTop + probe)
+  if (idx < 0) return scrollTop
+  const delta = (nextOffsets[idx] ?? 0) - (previousOffsets[idx] ?? 0)
+  return Math.max(0, scrollTop + delta)
+}
+
+/**
  * 当前视口（含上下缓冲）应挂载的章节闭区间。
  * 用前缀偏移 + 二分，O(log n)；不需要对每个占位做 getBoundingClientRect。
  */

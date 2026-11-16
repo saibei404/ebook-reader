@@ -476,7 +476,8 @@ v41 记的「占位估算高度与实挂高度差」并不准确。用同一本 
 
 修复：保存端改用 `caretRangeFromPoint` 取视口顶部命中的文本节点 + `domToCharOffset` 折算精确章内偏移；
 恢复端改用折叠 `Range` 的 `getClientRects()` 取该字符**所在行**的真实 y，误差压到一行内；两端都保留原比例算法作回退。
-另加 `anchoredScrollTop()`：恢复后章节前缀高度因实挂/校准变化时，按锚点章节新旧偏移差补偿 `scrollTop`，防止视口被推走。
+> **v42.1 更正**：当时还叠加了一层 `anchoredScrollTop()` 前缀高度补偿，但它只有纯函数单测、无集成证据；
+> 补做深位置（50000px）A/B 后证明它是死代码，已移除（见下方「v42.1 更正」）。
 
 A/B（同自检、同书籍、各自全新 profile）：旧代码 `600→715 RESTORE_FAIL` → 新代码 `600→616 RESTORE_OK`。
 
@@ -488,8 +489,28 @@ A/B（同自检、同书籍、各自全新 profile）：旧代码 `600→715 RES
 
 ### 自检与回归
 
-- 单测 149 → **165**（新增 `epub-theme` 12 例、`anchoredScrollTop` 4 例）。
-- 位置恢复五组全绿：小 TXT `600→600`、3MB TXT `600→590`、6.37MB TXT `600→616`、
-  PDF `2062→2062`、CBZ `1769→1769`、EPUB `RESTORE_OK(cfi)` + 章内 `INNER_SCROLL_OK` / `INNER_TEXT OK`。
-- 开发版 35 状态截图 `NO_RENDER_ERRORS`；打包版另跑一次冒烟。
-- 工程：版本号先于构建修改；`RELEASE-v41.md` 已补提交，本地领先的 v41 提交已推送 GitHub。
+- 单测 149 → **161**（新增 `epub-theme` 12 例；`anchoredScrollTop` 4 例随死代码移除）。
+- 位置恢复六组全绿：小 TXT `600→600`、3MB TXT `600→590`、6.37MB TXT `600→616`、
+  **深位置 `50000→50023`（DRIFT 23px）**、PDF `2062→2062`、CBZ `1769→1769`、
+  EPUB `RESTORE_OK(cfi)` + 章内 `INNER_SCROLL_OK` / `INNER_TEXT OK`。
+- 开发版与打包版各 35 状态截图 `NO_RENDER_ERRORS`。
+- 工程：版本号先于构建修改；`RELEASE-v41.md` 已补提交，本地 v41 提交已推送 GitHub。
+
+### v42.1 更正：移除经 A/B 证明无效的锚定补偿
+
+v42 交接里把 `anchoredScrollTop()` 写成「加固」，但自检固定只滚 600px（仍在第一章，前缀偏移差恒为 0），
+从未触发过它，只有 4 例纯函数单测、没有集成证据。本轮补齐：
+
+1. `electron/main.ts` 自检新增 `MOYU_RESTORE_SCROLL=<px>`（默认 600，上限 5,000,000）、
+   深位置自动延长挂载/校准等待、输出精确 `DRIFT`（百分比容差在深位置会放宽到几千 px，判 OK 会掩盖漂移）。
+2. 6.37MB 真实书籍滚到 **50000px**（跨到第三章，视口前方有占位章节）做 A/B：
+   含补偿 `50000→50023` / 禁用补偿（`false &&`，minifier 整体消除）也是 `50000→50023`，
+   章名、百分比、scrollTop 完全一致。
+
+结论：精确的 caret/Range 定位已让恢复后不再有前缀高度大幅变化，补偿块从未改变 `scrollTop`，属死代码。
+已移除 `chapter-window.ts` 的函数、`TextReader.tsx` 的 import/变量/补偿块与对应 4 例单测；
+保留 `layoutVersion` 依赖（校准后重测量确实需要）。移除后 `tsc` 干净、单测 161/161、六组位置恢复与
+35 状态截图回归全绿。**产品行为不变，0.11.1 安装包无需重新下载**。
+
+> 教训：先有精确修复、再叠加的「防御性加固」很容易变成永远不触发的死代码；
+> 每一层加固都要有能触发它的集成自检，否则宁可不留。

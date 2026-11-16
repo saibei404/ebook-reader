@@ -4017,7 +4017,14 @@ async function runRestoreTest(name: string, testPath: string): Promise<void> {
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
   const out: string[] = []
   try {
-    // 阶段 1：打开 → 滚动到 3000px → 等待节流保存
+    // 阶段 1：打开 → 滚动到目标位置 → 等待节流保存
+    // MOYU_RESTORE_SCROLL 可调滚动深度：只滚 600px（仍在第一章）时，视口上方没有章节前缀高度变化，
+    // 验证不到「恢复后占位变实挂」的锚定补偿；必须用深位置才能触发该路径。
+    const parsedScroll = Number(process.env.MOYU_RESTORE_SCROLL)
+    const scrollPx = Number.isFinite(parsedScroll) && parsedScroll > 0
+      ? Math.min(5_000_000, Math.round(parsedScroll))
+      : 600
+    const deep = scrollPx > 5000
     const w1 = makeWin()
     await w1.loadFile(renderer, { search: `?testpath=${encodeURIComponent(testPath)}` })
     await sleep(3800)
@@ -4027,7 +4034,7 @@ async function runRestoreTest(name: string, testPath: string): Promise<void> {
     // 推进阅读位置：文本类滚动；EPUB 通过目录跳到第 2 章（验证 CFI 持久化）
     const advanced = await w1.webContents.executeJavaScript(`(async () => {
       const text = document.querySelector('.text-scroll')
-      if (text) { text.scrollTo(0, 600); return 'scroll:' + Math.round(text.scrollTop) }
+      if (text) { text.scrollTo(0, ${scrollPx}); return 'scroll:' + Math.round(text.scrollTop) }
       // PDF / 漫画：滚各自的容器（此前只处理文本类与 EPUB，这两类从未推进过位置）
       const box = document.querySelector('.pdf-scroll, .comic-scroll')
       if (box) {
@@ -4068,7 +4075,7 @@ async function runRestoreTest(name: string, testPath: string): Promise<void> {
     } else {
       out.push(`advance ${advanced}`)
     }
-    await sleep(2600) // > 保存节流 1200ms
+    await sleep(deep ? 5200 : 2600) // > 保存节流 1200ms；深位置还要等视口附近章节挂载 + 每字高度校准稳定
     const beforeClose = await w1.webContents.executeJavaScript(`({
       scrollTop: Math.round(document.querySelector('.text-scroll, .epub-host, .pdf-scroll, .comic-scroll')?.scrollTop ?? -1),
       containerScroll: Math.round(document.querySelector('.epub-container, .epub-view')?.scrollTop ?? -1),
@@ -4095,7 +4102,7 @@ async function runRestoreTest(name: string, testPath: string): Promise<void> {
     const bookId = `testbook-${name}`
     const w2 = makeWin()
     await w2.loadFile(renderer, { search: `?bookId=${bookId}` })
-    await sleep(8000) // EPUB 重开需加载引擎 + 定位 + 渲染首章
+    await sleep(deep ? 14000 : 8000) // EPUB 重开需加载引擎 + 定位 + 渲染首章；深位置恢复要挂载更多章节
     const after = await w2.webContents.executeJavaScript(`({
       scrollTop: Math.round(document.querySelector('.text-scroll, .epub-host, .pdf-scroll, .comic-scroll')?.scrollTop ?? -1),
       containerScroll: Math.round(document.querySelector('.epub-container, .epub-view')?.scrollTop ?? -1),
@@ -4145,6 +4152,9 @@ async function runRestoreTest(name: string, testPath: string): Promise<void> {
       const b = t2.slice(0, 8)
       out.push(`INNER_TEXT ${a === b ? 'OK' : 'FAIL'}("${t1}" → "${t2}")`)
     }
+    // 精确差值单独输出：百分比容差（want*0.12）在深位置会放宽到几千 px，
+    // 用它判 OK 会掩盖真实漂移；DRIFT 才是 A/B 比较的依据。
+    out.push(`DRIFT ${got - want}px (expect≈${want}, got=${got})`)
     if (String(cfiCheck) === 'chapter2') out.push('RESTORE_OK(cfi)')
     else if (want > 5 && Math.abs(got - want) <= tol) out.push(`RESTORE_OK(scroll expect≈${want}, got=${got})`)
     else if (want <= 5) out.push('RESTORE_SKIP(无滚动量)')

@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
   averagePxPerChar,
-  anchoredScrollTop,
   chapterIndexAtOffset,
   countForBudget,
   DEFAULT_PX_PER_CHAR,
@@ -124,27 +123,6 @@ describe('averagePxPerChar / estimateHeight', () => {
   it('估算高度有下限，避免空段落塌陷', () => {
     expect(estimateHeight(0, 0.5)).toBe(24)
     expect(estimateHeight(1000, 0.5)).toBe(500)
-  })
-})
-
-describe('anchoredScrollTop（占位变化时保持当前章节位置）', () => {
-  it('上方章节实挂变高时等量补偿，消除恢复漂移', () => {
-    // 目标在第三章 600px 处；前两章实挂后各增加 57.5px，共 115px
-    expect(anchoredScrollTop([0, 300, 600, 900], [0, 357.5, 715, 1015], 715)).toBe(830)
-  })
-
-  it('上方章节变矮时向上补偿', () => {
-    expect(anchoredScrollTop([0, 500, 1000], [0, 400, 800], 1100)).toBe(900)
-  })
-
-  it('只有当前锚点章节自身高度变化时不改滚动位置', () => {
-    expect(anchoredScrollTop([0, 300, 600, 800], [0, 300, 600, 1000], 700)).toBe(700)
-  })
-
-  it('空布局、章节数不一致或非法滚动值时安全原样返回', () => {
-    expect(anchoredScrollTop([], [0, 100], 200)).toBe(200)
-    expect(anchoredScrollTop([0], [0, 100], 200)).toBe(200)
-    expect(anchoredScrollTop([0], [0], Number.NaN)).toBe(Number.NaN)
   })
 })
 

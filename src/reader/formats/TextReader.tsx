@@ -9,7 +9,6 @@ import {
   estimateHeight,
   averagePxPerChar,
   visibleRange,
-  anchoredScrollTop,
   DEFAULT_PX_PER_CHAR,
   FIRST_BATCH_CHARS,
 } from '../chapter-window'
@@ -152,9 +151,6 @@ export function TextReader({
   /* ---------- 布局测量 + 前缀偏移（必须早于位置恢复执行） ---------- */
   useLayoutEffect(() => {
     if (!chapters.length) return
-    const previousOffsets = layoutRef.current.offsets
-    const scroller = scrollRef.current
-    const previousScrollTop = scroller?.scrollTop ?? 0
     const heights: number[] = []
     const offsets: number[] = []
     const samples: { chars: number; height: number }[] = []
@@ -173,13 +169,6 @@ export function TextReader({
       acc += h
     }
     layoutRef.current = { offsets, heights, total: acc }
-
-    // 占位变实挂 / 每字高度校准都会改变上方章节高度。用章节前缀差补偿 scrollTop，
-    // 让视口仍停在同一章同一相对位置；初次恢复前的空布局不参与补偿。
-    if (scroller && restored.current && previousOffsets.length === chapters.length) {
-      const anchored = anchoredScrollTop(previousOffsets, offsets, previousScrollTop)
-      if (Math.abs(anchored - previousScrollTop) > 0.5) scroller.scrollTop = anchored
-    }
 
     const avg = averagePxPerChar(samples)
     // 校准上限 8 次：避免极端排版下「测量 → 重估 → 再测量」来回抖动

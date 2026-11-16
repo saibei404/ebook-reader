@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { motion } from 'motion/react'
 import { useStore } from '@/store/useStore'
-import { ANIM_MODES, MATERIALS, WALLPAPER_FITS } from '@/types/book'
+import { ANIM_MODES, WALLPAPER_FITS } from '@/types/book'
 import { nativeApi } from '@/lib/native'
 import { LANGS, t, useLang } from '@/lib/i18n'
 import { SliderField } from '@/components/NumberFields'
@@ -65,36 +65,13 @@ function AppearanceSection() {
       <section className="set-block">
         <h3>{t('set.material')}</h3>
         <p className="set-desc">{t('set.materialDesc')}</p>
-        <div className="material-grid">
-          {MATERIALS.map((m) => (
-            <button
-              key={m.id}
-              className={`material-card${settings.material === m.id ? ' active' : ''}`}
-              onClick={() => void setSettings({ material: m.id })}
-            >
-              <div className={`material-preview mat-${m.id}`}>
-                <span className="mp-dot" />
-                <span className="mp-bar" />
-                <span className="mp-bar short" />
-              </div>
-              <div className="material-name">{t(`mat.${m.id}`)}</div>
-              <div className="material-hint">{t(`mat.${m.id}.hint`)}</div>
-            </button>
-          ))}
+        {/* 设计语言重构后 4 种材质统一为同一表面，不再提供无视觉差异的选择器。
+            原生亚克力会让窗口透明，与不透明表面规范冲突，一并移除。 */}
+        <div className="surface-tokens">
+          <span className="surface-token"><i />--color-background-surface</span>
+          <span className="surface-token"><i />--shadow-low</span>
+          <span className="surface-token"><i />--radius-container</span>
         </div>
-        <label className="switch-row">
-          <input
-            type="checkbox"
-            checked={settings.nativeAcrylic}
-            onChange={(e) => void setSettings({ nativeAcrylic: e.target.checked })}
-            disabled={!nativeApi}
-          />
-          <span>
-            {t('set.nativeAcrylic')}
-            {!nativeApi && <em>{t('set.nativeAcrylicClient')}</em>}
-            {nativeApi && <em>{t('set.nativeAcrylicReload')}</em>}
-          </span>
-        </label>
       </section>
 
       <section className="set-block">
@@ -950,7 +927,7 @@ export function SettingsPage() {
             onClick={() => setUI({ settingsSection: s.id })}
           >
             {active.id === s.id && (
-              <motion.span layoutId="set-nav-pill" className="set-nav-pill" transition={{ type: 'spring', stiffness: 420, damping: 32 }} />
+              <motion.span layoutId="set-nav-pill" className="set-nav-pill" transition={{ duration: 0.175, ease: [0.2, 0, 0, 1] as [number, number, number, number] }} />
             )}
             <span className="set-nav-inner">
               <s.Icon size={15} />

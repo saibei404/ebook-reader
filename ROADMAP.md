@@ -514,3 +514,40 @@ v42 交接里把 `anchoredScrollTop()` 写成「加固」，但自检固定只�
 
 > 教训：先有精确修复、再叠加的「防御性加固」很容易变成永远不触发的死代码；
 > 每一层加固都要有能触发它的集成自检，否则宁可不留。
+
+---
+
+## 十五、v43 交付记录（Astryx 设计语言重构 · 0.12.0）
+
+用户确认方向：**全面换成 Astryx 视觉 + 全界面 token 化**。参考 `meta/astryx` 的
+[Design Conventions](https://github.com/meta/astryx/wiki/Design-Conventions)，只借鉴约定与 token 架构，
+不引入 `@astryxdesign/core`（那是 150+ 组件 + StyleX，等于重写 UI）。完整规范见 `DESIGN-ASTRYX.md`。
+
+### 落地
+
+- 新建 `src/styles/tokens.css` 单一真源：颜色按 role 分层（body / muted / surface / inverted / neutral /
+  track / overlay-hover / border / text / accent / status），明暗双模，禁用纯黑纯白，所有叠层为 alpha tint。
+- 同心圆角 `4/8/12/28/full`；4px 间距栅格（2px 半步）；字号 base 14 · ratio 1.2 七档；
+  字重四档；`--ease-standard` + 175/410ms；`--shadow-low/med/high` 与 `--z-*` 语义层级。
+- `global.css` 移除旧 iOS 变量区（150 行），`reader.css` 与主窗口共用同一 token 源
+  （`color-scheme` 拆到 `[data-theme]`，避免污染阅读器纸色主题）。
+- 4 种材质统一为不透明表面；移除全部 `backdrop-filter`、渐变、噪点、发光高光、渐变文字。
+- 批量收敛：圆角 **0** 裸 px 残留、字号 **0** 裸 px 残留、间距 258 处 token 化、渐变 **0** 残留。
+- 动效去 spring：5 种入场收敛到同一 410ms 标准缓动族，去掉 3D 倾斜、hover 放大、翻卡转场；
+  全局 `:focus-visible` / `button:active` / disabled 状态规范；reduced-motion 归零。
+- 移除失去意义的「材质 4 选 1」与「窗口级原生亚克力」开关，改为表面规范说明块；五语文案同步。
+- 壁纸导入与透明度滑块保留，语义改为控制「表面 ←→ 底色」混合比（不再透出壁纸）。
+
+### 自检与回归
+
+- `tsc` 干净 / 单测 161/161 / 构建通过
+- 35 状态截图 `desktop=35 fallback=0`、`NO_RENDER_ERRORS`；**窗口级截图**人工核对书架页与设置页：
+  深色带色调中性底、无毛玻璃/壁纸透出、圆角与卡片统一、无布局塌陷
+- 截图自检的 desktop 捕获会受用户桌面其它窗口干扰，视觉核对以 `screenshots/window/` 为准
+- 打包版另跑一次 `--shot` 冒烟
+
+### 已知遗留
+
+控件高度与 `z-index` 仍有少量硬编码（token 已定义待迁移）、同心圆角公式尚未逐对应用、
+兼容层旧变量名仍在引用、状态色配图标未全覆盖、Astryx 🟢 Objective 检查未做成 linter。
+程序化生成的书籍封面仍保留渐变（内容资产，非 UI chrome）。

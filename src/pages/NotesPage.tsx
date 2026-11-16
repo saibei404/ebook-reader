@@ -170,7 +170,7 @@ export function NotesPage() {
           className="notes-group"
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ type: 'spring', stiffness: 260, damping: 28 }}
+          transition={{ duration: 0.175, ease: [0.2, 0, 0, 1] as [number, number, number, number] }}
         >
           <div className="notes-group-head">
             <span className="notes-book">{g.title}</span>

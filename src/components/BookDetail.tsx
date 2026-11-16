@@ -91,13 +91,12 @@ export function BookDetail() {
       onClick={() => openBook(null)}
     >
       <motion.div
-        /* 详情弹层统一亚克力材质：不再跟随全局材质设置，保证与其他弹层一致的
-           「半透明 + 噪点 + 高光描边」观感；背景可视度由 --detail-scrim 调节。 */
+        /* 详情弹层：统一不透明表面，入场只做轻微 opacity + 位移。 */
         className="detail-panel mat-acrylic"
-        initial={morph ? false : { rotateY: 64, opacity: 0, scale: 0.92 }}
-        animate={{ rotateY: 0, opacity: 1, scale: 1 }}
-        exit={{ rotateY: 46, opacity: 0, scale: 0.95 }}
-        transition={{ type: 'spring', stiffness: 240, damping: 26 }}
+        initial={morph ? false : { opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0 }}
+        transition={{ duration: 0.41, ease: [0.2, 0, 0, 1] as [number, number, number, number] }}
         onClick={(e) => e.stopPropagation()}
       >
         <button className="detail-close" onClick={() => openBook(null)} title={t('detail.close')}>

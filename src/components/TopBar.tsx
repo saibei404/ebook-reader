@@ -109,7 +109,7 @@ function WallpaperPopover() {
           initial={{ opacity: 0, y: -8, scale: 0.97 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           exit={{ opacity: 0, y: -8, scale: 0.97 }}
-          transition={{ type: 'spring', stiffness: 420, damping: 32 }}
+          transition={{ duration: 0.175, ease: [0.2, 0, 0, 1] as [number, number, number, number] }}
         >
       <div className="wp-section">
         <div className="wp-label">{t('wp.mine')}</div>

@@ -30,7 +30,7 @@ export function TabBar() {
                 <motion.span
                   layoutId="tab-pill"
                   className="tab-pill"
-                  transition={{ type: 'spring', stiffness: 380, damping: 30 }}
+                  transition={{ duration: 0.175, ease: [0.2, 0, 0, 1] as [number, number, number, number] }}
                 />
               )}
               <span className="tab-btn-inner">

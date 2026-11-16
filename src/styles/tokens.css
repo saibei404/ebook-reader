@@ -1,0 +1,229 @@
+/* ==========================================================================
+ * Astryx 风格设计 token（单一真源）
+ *
+ * 参考 meta/astryx 的 Design Conventions：
+ *  - 颜色按 role 分层，交互叠层必须是 alpha tint，明暗双模均过 WCAG AA
+ *  - 禁用纯黑纯白，中性色一律带色调
+ *  - 圆角按 role 尺度 4/8/12/28 + 同心公式 r_inner = r_outer - gap
+ *  - 间距 4px 栅格（2px 半步），控件高度 28/32/36，触摸目标 44px
+ *  - 排版 base 14 / ratio 1.2 几何阶梯，字重四档，行长 65–75ch
+ *  - 阴影 low < med < high 对应堆叠顺序；不用彩色发光、不用宽漫反射阴影配细边框
+ *  - 动效 fast 175ms / medium 410ms，统一 --ease-standard，只动 transform/opacity
+ *
+ * 兼容层：保留墨鱼阅读器原有变量名，全部指向上面的 role token。
+ * 新代码请直接使用 --color-* / --radius-* / --space-* / --motion-*。
+ * ========================================================================== */
+
+/* :root 提供默认（深色）值；color-scheme 只挂在 data-theme 上，
+ * 这样独立入口（阅读窗口）引入本文件也不会被强制切成深色。 */
+[data-theme='dark'] {
+  color-scheme: dark;
+}
+
+:root {
+  /* ---------- Color · 语义分层 ---------- */
+  --color-background-body: #16171a;
+  --color-background-muted: #1e2024;
+  --color-background-surface: #24262b;
+  --color-background-inverted: #e7e9ed;
+  --color-neutral: #2b2e33;
+  --color-track: #33363c;
+  --color-overlay-hover: rgba(255, 255, 255, 0.07);
+  --color-overlay-pressed: rgba(255, 255, 255, 0.13);
+  --color-border: rgba(255, 255, 255, 0.12);
+  --color-border-emphasized: rgba(255, 255, 255, 0.26);
+  --color-text: #e9eaed;
+  --color-text-muted: rgba(233, 234, 237, 0.76);
+  --color-text-subtle: rgba(233, 234, 237, 0.66);
+  --color-text-disabled: rgba(233, 234, 237, 0.38);
+  --color-text-inverted: #1a1c20;
+  --color-accent: #6ba6ff;
+  --color-accent-muted: rgba(107, 166, 255, 0.16);
+  --color-on-accent: #101721;
+  --color-success: #58c894;
+  --color-success-muted: rgba(88, 200, 148, 0.14);
+  --color-error: #ff7b74;
+  --color-error-muted: rgba(255, 123, 116, 0.14);
+  --color-warning: #e8b85c;
+  --color-warning-muted: rgba(232, 184, 92, 0.14);
+
+  /* ---------- Radius · role 尺度 + 同心 ---------- */
+  --radius-inner: 4px;
+  --radius-element: 8px;
+  --radius-container: 12px;
+  --radius-page: 28px;
+  --radius-full: 9999px;
+  --radius-nested: calc(var(--radius-container) - var(--space-2));
+  --radius-window: var(--radius-container);
+
+  /* ---------- Space · 4px 栅格 ---------- */
+  --space-half: 2px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+
+  /* ---------- Type · base 14 / ratio 1.2 ---------- */
+  --font-family: -apple-system, 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'Cascadia Code', Consolas, monospace;
+  --type-supporting: 12px;
+  --type-label: 12px;
+  --type-body: 14px;
+  --type-large: 17px;
+  --type-title: 20px;
+  --type-heading: 24px;
+  --type-display: 34px;
+  --weight-body: 400;
+  --weight-label: 500;
+  --weight-title: 600;
+  --weight-strong: 700;
+  --leading-body: 1.5;
+  --leading-tight: 1.25;
+  --measure: 72ch;
+
+  /* ---------- Size / Density ---------- */
+  --control-sm: 28px;
+  --control-md: 32px;
+  --control-lg: 36px;
+  --hit-target: 44px;
+
+  /* ---------- Elevation · 克制外阴影，低/中/高对应堆叠 ---------- */
+  --shadow-low: 0 1px 2px rgba(0, 0, 0, 0.18);
+  --shadow-med: 0 4px 12px rgba(0, 0, 0, 0.24);
+  --shadow-high: 0 12px 28px rgba(0, 0, 0, 0.3);
+  --shadow-inset-hover: inset 0 0 0 1px var(--color-border-emphasized);
+  --z-base: 0;
+  --z-dropdown: 100;
+  --z-sticky: 200;
+  --z-overlay: 300;
+  --z-toast: 400;
+  --z-tooltip: 500;
+
+  /* ---------- Motion ---------- */
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --motion-fast: 175ms;
+  --motion-medium: 410ms;
+
+  /* ========== 兼容层：旧变量名 → 新 token ==========
+   * 透明度滑块（--content-opacity / --dock-opacity）改为控制「表面 ←→ 底色」的混合比，
+   * 仍然可见可调，但不再透出壁纸（Astryx 表面一律不透明）。 */
+  --bg-fallback: var(--color-background-body);
+  --bg-base: var(--color-background-body);
+  --dock-bg: color-mix(in srgb, var(--color-background-surface) calc(var(--dock-opacity, 0.55) * 100%), var(--color-background-body));
+  --content-surface: color-mix(in srgb, var(--color-background-muted) calc(var(--content-opacity, 0.72) * 100%), var(--color-background-body));
+  --detail-scrim: rgba(10, 11, 14, 0.48);
+  --chip-surface: var(--color-neutral);
+  --surf-1: var(--color-background-muted);
+  --surf-2: var(--color-background-surface);
+  --surf-solid: var(--color-background-surface);
+  --acrylic-card: var(--color-background-surface);
+  --acrylic-card-border: var(--color-border);
+  --surface-card: var(--color-background-surface);
+  --surface-inset: var(--color-neutral);
+  --surface-inset-line: var(--color-border);
+  --text-1: var(--color-text);
+  --text-2: var(--color-text-muted);
+  --text-3: var(--color-text-subtle);
+  --nav-text-shadow: none;
+  --border-1: var(--color-border);
+  --border-2: var(--color-border-emphasized);
+  --hover-bg: var(--color-overlay-hover);
+  --active-bg: var(--color-overlay-pressed);
+  --scroll-thumb: var(--color-track);
+  --code-bg: var(--color-neutral);
+  --wallpaper-scrim: #0d0e11;
+  --accent: var(--color-accent);
+  --accent-2: var(--color-accent);
+  --ok: var(--color-success);
+  --err: var(--color-error);
+  --card-shadow: var(--shadow-low);
+  --card-shadow-hover: var(--shadow-med);
+  --sheen: transparent;
+  /* 玻璃材质相关：全部退化为平面值，保留变量以免旧规则报错 */
+  --acrylic-bg: var(--color-background-surface);
+  --acrylic-shadow: var(--shadow-med);
+  --glass-blur: 0px;
+  --glass-sat: 100%;
+  --acrylic-noise: 0;
+  --mica-mix: 0%;
+}
+
+[data-theme='light'] {
+  color-scheme: light;
+
+  --color-background-body: #f2f4f7;
+  --color-background-muted: #e9ecf1;
+  --color-background-surface: #fbfcfd;
+  --color-background-inverted: #1b1d21;
+  --color-neutral: #e2e5ea;
+  --color-track: #d9dde4;
+  --color-overlay-hover: rgba(20, 24, 32, 0.055);
+  --color-overlay-pressed: rgba(20, 24, 32, 0.1);
+  --color-border: rgba(20, 24, 32, 0.14);
+  --color-border-emphasized: rgba(20, 24, 32, 0.3);
+  --color-text: #1b1d21;
+  --color-text-muted: rgba(27, 29, 33, 0.78);
+  --color-text-subtle: rgba(27, 29, 33, 0.66);
+  --color-text-disabled: rgba(27, 29, 33, 0.38);
+  --color-text-inverted: #f4f6f9;
+  --color-accent: #2f6fe4;
+  --color-accent-muted: rgba(47, 111, 228, 0.12);
+  --color-on-accent: #ffffff;
+  --color-success: #1a8f5f;
+  --color-success-muted: rgba(26, 143, 95, 0.12);
+  --color-error: #c7392f;
+  --color-error-muted: rgba(199, 57, 47, 0.12);
+  --color-warning: #9a6b0f;
+  --color-warning-muted: rgba(154, 107, 15, 0.12);
+
+  --shadow-low: 0 1px 2px rgba(20, 24, 32, 0.08);
+  --shadow-med: 0 4px 12px rgba(20, 24, 32, 0.1);
+  --shadow-high: 0 12px 28px rgba(20, 24, 32, 0.14);
+  --detail-scrim: rgba(28, 32, 40, 0.32);
+  --wallpaper-scrim: #f2f4f7;
+}
+
+/* 浅色安全底：不再依赖壁纸亮度分叉，表面恒为不透明浅色 */
+[data-theme='light'][data-no-wallpaper='1'],
+[data-theme='light'][data-bg-lum='dark'],
+[data-theme='light'][data-bg-lum='unknown'],
+[data-theme='light'][data-native-acrylic='1'] {
+  --bg-fallback: var(--color-background-body);
+  --bg-base: var(--color-background-body);
+  --surface-card: var(--color-background-surface);
+  --chip-surface: var(--color-neutral);
+  --surface-inset: var(--color-neutral);
+  --acrylic-card: var(--color-background-surface);
+}
+
+/* ---------- 全局状态规范（Astryx Consistent State Representations） ---------- */
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 3px;
+}
+
+button:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+button:disabled,
+[aria-disabled='true'] {
+  color: var(--color-text-disabled);
+  cursor: not-allowed;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0s !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0s !important;
+    scroll-behavior: auto !important;
+  }
+}

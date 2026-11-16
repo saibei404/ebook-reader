@@ -15,7 +15,7 @@ export function PlaceholderPage({ tab }: { tab: string }) {
       className="placeholder-page"
       initial={{ opacity: 0, y: 16 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ type: 'spring', stiffness: 260, damping: 26 }}
+      transition={{ duration: 0.175, ease: [0.2, 0, 0, 1] as [number, number, number, number] }}
     >
       <info.Icon size={46} />
       <h2>{info.title}</h2>

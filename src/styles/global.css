@@ -1,3 +1,4 @@
+@import './tokens.css';
 /* ========== 基础 ========== */
 * {
   margin: 0;
@@ -14,7 +15,7 @@ body,
 
 body {
   font-family: -apple-system, "PingFang SC", "Microsoft YaHei", "Segoe UI", system-ui, sans-serif;
-  font-size: 14px;
+  font-size: var(--type-body);
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
 }
@@ -36,8 +37,8 @@ select {
 code {
   font-family: "Cascadia Code", Consolas, monospace;
   font-size: 0.92em;
-  padding: 1px 6px;
-  border-radius: 6px;
+  padding: var(--space-half) 6px;
+  border-radius: var(--radius-inner);
   background: var(--code-bg);
 }
 
@@ -47,209 +48,25 @@ code {
 }
 ::-webkit-scrollbar-thumb {
   background: var(--scroll-thumb);
-  border-radius: 4px;
+  border-radius: var(--radius-inner);
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 
-/* ========== 主题变量（iOS 系统色板） ==========
- * 设计语言：iOS 27 主界面 —— 分组底色 / 毛玻璃表面 / hairline 分隔 / systemBlue 强调。
- * 无障碍：正文对比度 ≥4.5:1（实际 ≥7:1），辅助文字 ≥3:1。
- * 深色 = iOS Dark，浅色 = iOS Light。
- */
-:root,
-[data-theme="dark"] {
-  /* 背景 / 表面（纯净底色：无壁纸、无半透明） */
-  --bg-fallback: #0e0e10;
-  --bg-base: #0e0e10;
-  /* Dock 半透明毛玻璃：透明度显著低于书架栏（默认 0.55 vs 0.66），壁纸在 Dock 下清晰可见 */
-  --dock-bg: rgba(22, 22, 25, var(--dock-opacity, 0.55));
-  /* 书架内容区衬底：不透明度由「背景透明度」设置项驱动（--content-opacity） */
-  --content-surface: rgba(14, 14, 16, var(--content-opacity, 0.72));
-  /* 详情遮罩随主题：深色用中性暗罩，浅色用与底座同色系的浅罩，不能一律压黑。
-     透明度压低（0.62→0.42 / 0.82→0.58）：详情弹层改亚克力后壁纸要能透出来，
-     文字可读性由弹层自身的半透明底保证 */
-  --detail-scrim: rgba(8, 9, 14, 0.42);
-  --chip-surface: #1c1c1f;
-  --surf-1: #161619;
-  --surf-2: #161619;
-  --surf-solid: #1c1c1f;
-  /* 设置页亚克力卡片：半透明 + 磨砂，轻微透出壁纸 */
-  --acrylic-card: rgba(28, 28, 30, 0.55);
-  --acrylic-card-border: rgba(255, 255, 255, 0.09);
-  /* 卡片面 / 内嵌面：与 Dock 同一族（同样的半透明度），只是明度略提，
-     避免整块卡片在黑壁纸上塌成"黑色底纹"；输入框、滑轨等内嵌元素用 --surface-inset */
-  --surface-card: rgba(36, 37, 42, 0.6);
-  --surface-inset: rgba(255, 255, 255, 0.06);
-  --surface-inset-line: rgba(255, 255, 255, 0.1);
-  /* 文字 / 图标（label 三级） */
-  --text-1: #ffffff;
-  --text-2: rgba(235, 235, 245, 0.62);
-  --text-3: rgba(235, 235, 245, 0.42);
-  --nav-text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
-  /* 分隔线 / 描边（iOS 深色 hairline 提亮） */
-  --border-1: rgba(84, 84, 88, 0.55);
-  --border-2: rgba(84, 84, 88, 0.9);
-  /* 填充（fill） */
-  --hover-bg: rgba(120, 120, 128, 0.24);
-  --active-bg: rgba(120, 120, 128, 0.4);
-  --scroll-thumb: rgba(84, 84, 88, 0.8);
-  --code-bg: rgba(120, 120, 128, 0.24);
-  /* 壁纸适配罩（浅色白罩提亮 / 深色黑罩压暗） */
-  --wallpaper-scrim: #000000;
-  /* 软件外侧统一圆角 */
-  --radius-window: 14px;
-  /* 玻璃材质（Liquid Glass） */
-  --acrylic-bg: linear-gradient(135deg, rgba(120, 120, 128, 0.28), rgba(120, 120, 128, 0.1));
-  --acrylic-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), inset 0 -1px 0 rgba(0, 0, 0, 0.3),
-    0 8px 28px rgba(0, 0, 0, 0.36);
-  --glass-blur: 24px;
-  --glass-sat: 180%;
-  --acrylic-noise: 0.03;
-  --mica-mix: 40%;
-  /* 阴影（iOS 极轻） */
-  --card-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
-  --card-shadow-hover: 0 8px 20px rgba(0, 0, 0, 0.5);
-  --sheen: rgba(255, 255, 255, 0.14);
-  /* 系统色 */
-  --accent: #0a84ff;
-  --accent-2: #5e5ce6;
-  --ok: #30d158;
-  --err: #ff453a;
-  color-scheme: dark;
-}
-
-[data-theme="light"] {
-  /* 背景 / 表面（浅色底座：冷灰底 + 白色纸面，不用纯白——纯白之上再叠半透明白会整片塌平） */
-  --bg-fallback: #eef1f6;
-  --bg-base: #eef1f6;
-  /* 浅色 Dock：比书架纸面暗一档的冷灰（原来的 244,244,246 叠在白底/亮壁纸上几乎看不见，
-     顶栏与侧栏"消失"，整屏像一张白纸）。透明度仍由 --dock-opacity 控制。 */
-  --dock-bg: rgba(233, 237, 244, var(--dock-opacity, 0.55));
-  /* 浅色默认更透（壁纸更清晰），可由「背景透明度」调节 */
-  --content-surface: rgba(255, 255, 255, var(--content-opacity, 0.66));
-  /* 浅色主题下若沿用深色黑罩，会把冷灰侧栏和白色内容区一起压成「脏灰」，
-     且两者底色不同、压暗后色差被放大——这就是「色调不统一」的来源。
-     改用与 --bg-base 同色系的浅罩，保持整体仍在浅色调里。 */
-  --detail-scrim: rgba(238, 241, 246, 0.58);
-  --chip-surface: #f2f2f4;
-  --surf-1: #f4f4f6;
-  --surf-2: #f4f4f6;
-  --surf-solid: #f2f2f4;
-  /* 设置页亚克力卡片：半透明 + 磨砂，轻微透出壁纸 */
-  --acrylic-card: rgba(255, 255, 255, 0.62);
-  --acrylic-card-border: rgba(60, 60, 67, 0.1);
-  --surface-card: rgba(255, 255, 255, 0.7);
-  --surface-inset: rgba(255, 255, 255, 0.55);
-  --surface-inset-line: rgba(60, 60, 67, 0.12);
-  /* 文字 / 图标：纯黑在浅色底上过锐、发涩，改 #1c1c1e；
-     次级文字原来 0.62/0.45 在白底上只有 4.3:1 / 2.7:1，压到纸面上发虚读不动。
-     现在 0.78 / 0.62 —— 在浅色纸面（含"最暗背板"兜底）上分别 ≈7.9:1 / 4.6:1，
-     刚好过 WCAG AA 的正文线，又保住三级层次。 */
-  --text-1: #1c1c1e;
-  --text-2: rgba(28, 28, 32, 0.78);
-  --text-3: rgba(28, 28, 32, 0.65);
-  --nav-text-shadow: 0 1px 2px rgba(255, 255, 255, 0.55);
-  /* 分隔线 / 描边 */
-  --border-1: rgba(60, 60, 67, 0.16);
-  --border-2: rgba(60, 60, 67, 0.3);
-  /* 填充 */
-  --hover-bg: rgba(120, 120, 128, 0.12);
-  --active-bg: rgba(120, 120, 128, 0.2);
-  --scroll-thumb: rgba(60, 60, 67, 0.3);
-  --code-bg: rgba(120, 120, 128, 0.12);
-  /* 壁纸适配罩（浅色白罩提亮 / 深色黑罩压暗） */
-  --wallpaper-scrim: #ffffff;
-  /* 玻璃材质 */
-  --acrylic-bg: linear-gradient(135deg, rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0.42));
-  --acrylic-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), inset 0 -1px 0 rgba(60, 60, 67, 0.04),
-    0 8px 24px rgba(0, 0, 0, 0.08);
-  --glass-blur: 20px;
-  --glass-sat: 180%;
-  --acrylic-noise: 0.03;
-  --mica-mix: 40%;
-  /* 阴影 */
-  --card-shadow: 0 1px 3px rgba(0, 0, 0, 0.07);
-  --card-shadow-hover: 0 6px 16px rgba(0, 0, 0, 0.12);
-  --sheen: rgba(255, 255, 255, 0.85);
-  /* 系统色 */
-  --accent: #007aff;
-  --accent-2: #5856d6;
-  --ok: #34c759;
-  --err: #ff3b30;
-  color-scheme: light;
-}
-
-/* ========== 浅色「安全底」==========
- * 浅色的纸面/导轨都是半透明白，颜色最终取决于**背后是什么**。
- * 背板一旦是深的（暗壁纸、系统深色亚克力、没装壁纸时的窗口底），
- * 黑字就会落在 60 号灰上——对比度 2:1 都不到，整屏糊成一片（用户实拍截图就是这个）。
- *
- * 所以浅色下按「背板亮度」分两条路：
- *   亮壁纸  → 保持半透明（能看见壁纸细节）
- *   暗/未知 → 换成不透明合成：白 × 透明度 + 浅灰，无论透明度调到多低都还是浅色
- * `color-mix` 在 CSS 里做这件事，滑块的 20%~90% 依旧有效，但只改变纸面白度，
- * 不会再跌进深色区间。
- */
-[data-theme='light'][data-no-wallpaper='1'],
-[data-theme='light'][data-bg-lum='dark'],
-[data-theme='light'][data-bg-lum='unknown'],
-[data-theme='light'][data-native-acrylic='1'] {
-  --bg-fallback: #eef1f6;
-  --bg-base: #eef1f6;
-  --dock-bg: color-mix(in srgb, #e9edf4 calc(var(--dock-opacity) * 100%), #dde4ee);
-  --content-surface: color-mix(in srgb, #ffffff calc(var(--content-opacity) * 100%), #e7ecf4);
-  --surface-card: #ffffff;
-  --chip-surface: #f1f4f9;
-  --surface-inset: #f5f7fb;
-  --acrylic-card: rgba(255, 255, 255, 0.82);
-}
-
-/* ========== 材质系统 ==========
- * 稳定性约束（2026-10-29）：材质类**不使用 backdrop-filter**。
- * 原因：材质类挂在常驻全高侧栏 / 弹层 / 详情面板上，切换材质时大面积模糊图层
- * 反复创建销毁，在 WebView2 合成器上易触发 GPU 崩溃（表现为闪退）。
- * 材质差异改由「底色 + 边框 + 噪点 + 内阴影」表达，视觉几乎等价。
+/* ========== 表面系统（Astryx：统一不透明表面 + 低层阴影 + 1px 描边） ==========
+ * 旧版 4 种材质（磨砂/亚克力/云母/纯色）靠渐变、噪点、模糊、内阴影区分；
+ * 设计语言重构后统一为同一表面。材质选择保留为兼容设置，视觉不再分叉。
  */
 .mat-frosted,
 .mat-acrylic,
 .mat-mica,
 .mat-solid {
   position: relative;
-  border-radius: 14px;
-}
-
-.mat-frosted {
-  background: var(--surf-2);
-  border: 1px solid var(--border-1);
-}
-
-.mat-acrylic {
-  background: var(--acrylic-bg);
-  border: 1px solid var(--border-2);
-  box-shadow: var(--acrylic-shadow);
-}
-
-.mat-acrylic::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  pointer-events: none;
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2'/></filter><rect width='140' height='140' filter='url(%23n)' opacity='0.55'/></svg>");
-  opacity: var(--acrylic-noise);
-  mix-blend-mode: overlay;
-}
-
-.mat-mica {
-  background: color-mix(in srgb, var(--wall-tint, #6b7280) var(--mica-mix), var(--surf-solid));
-  border: 1px solid var(--border-1);
-}
-
-.mat-solid {
-  background: var(--surf-solid);
-  border: 1px solid var(--border-1);
+  border-radius: var(--radius-container);
+  background: var(--color-background-surface);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-low);
 }
 
 /* ========== 根布局 ========== */
@@ -289,7 +106,7 @@ code {
 .app-content {
   flex: 1;
   overflow-y: auto;
-  padding: 20px 22px 28px;
+  padding: var(--space-5) 22px 28px;
   /* 书架与 Dock 硬连接：无圆角、无呼吸位，直角贴边，仅以颜色区分 */
   margin: 0;
   border-radius: 0;
@@ -322,7 +139,7 @@ code {
   inset: 0;
   background: var(--wallpaper-scrim);
   pointer-events: none;
-  transition: background-color 0.25s ease;
+  transition: background-color var(--motion-fast) var(--ease-standard);
 }
 
 [data-native-acrylic="1"] .wallpaper-layer {
@@ -337,7 +154,7 @@ code {
   width: 196px;
   flex-shrink: 0;
   margin: 0;
-  padding: 18px 12px;
+  padding: 18px var(--space-3);
   display: flex;
   flex-direction: column;
   gap: 18px;
@@ -352,22 +169,22 @@ code {
 .brand-icon {
   width: 34px;
   height: 34px;
-  border-radius: 9px;
-  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.3);
+  border-radius: var(--radius-element);
+  box-shadow: var(--shadow-low);
 }
 
 .tabbar-nav {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-1);
 }
 
 .tab-btn {
   position: relative;
   display: block;
   width: 100%;
-  padding: 3px;
-  border-radius: 11px;
+  padding: var(--space-1);
+  border-radius: var(--radius-element);
   text-align: left;
 }
 
@@ -377,11 +194,11 @@ code {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 9px 12px;
-  border-radius: 9px;
+  padding: 10px var(--space-3);
+  border-radius: var(--radius-element);
   color: var(--text-2);
-  font-size: 14px;
-  transition: color 0.2s ease;
+  font-size: var(--type-body);
+  transition: color var(--motion-fast) var(--ease-standard);
 }
 
 .tab-btn:hover .tab-btn-inner {
@@ -397,7 +214,7 @@ code {
 .tab-pill {
   position: absolute;
   inset: 0;
-  border-radius: 11px;
+  border-radius: var(--radius-element);
   background: color-mix(in srgb, var(--accent) 12%, transparent);
   border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
 }
@@ -411,7 +228,7 @@ code {
 
 /* 版本号：常驻在侧栏最底部，截图一眼能认出跑的是哪个包 */
 .tabbar-ver {
-  padding: 0 10px 2px;
+  padding: 0 10px var(--space-half);
   font-size: 10.5px;
   letter-spacing: 0.04em;
   color: var(--text-3);
@@ -424,7 +241,7 @@ code {
   align-items: center;
   justify-content: space-between;
   height: 52px;
-  padding: 0 8px 0 18px;
+  padding: 0 var(--space-2) 0 18px;
   flex-shrink: 0;
   position: relative;
   overflow: hidden;
@@ -468,12 +285,12 @@ code {
 .brand-btn {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 10px;
   padding: 6px 10px;
-  border-radius: 10px;
+  border-radius: var(--radius-element);
   background: none;
   -webkit-app-region: no-drag;
-  transition: background 0.18s ease;
+  transition: background var(--motion-fast) var(--ease-standard);
   min-width: 0;
 }
 
@@ -484,47 +301,44 @@ code {
 .brand-btn .brand-icon {
   width: 26px;
   height: 26px;
-  border-radius: 7px;
+  border-radius: var(--radius-element);
   flex-shrink: 0;
 }
 
 .brand-name {
-  font-size: 15px;
+  font-size: var(--type-body);
   font-weight: 600;
   color: var(--text-1);
-  text-shadow: var(--nav-text-shadow);
   white-space: nowrap;
 }
 
 .topbar-page {
-  font-size: 12px;
+  font-size: var(--type-supporting);
   color: var(--text-2);
-  padding: 1px 8px;
-  border-radius: 6px;
+  padding: var(--space-half) var(--space-2);
+  border-radius: var(--radius-inner);
   background: var(--hover-bg);
-  text-shadow: var(--nav-text-shadow);
   white-space: nowrap;
 }
 
 .topbar-count {
-  font-size: 12px;
+  font-size: var(--type-supporting);
   color: var(--text-3);
-  text-shadow: var(--nav-text-shadow);
   white-space: nowrap;
 }
 
 .nav-search {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 7px 13px;
-  border-radius: 11px;
+  gap: var(--space-2);
+  padding: var(--space-2) 14px;
+  border-radius: var(--radius-element);
   background: var(--hover-bg);
   border: 1px solid var(--border-1);
   color: var(--text-3);
   width: min(380px, 32vw);
   flex-shrink: 0;
-  transition: border-color 0.2s ease;
+  transition: border-color var(--motion-fast) var(--ease-standard);
 }
 
 .nav-search:focus-within {
@@ -536,7 +350,7 @@ code {
   border: none;
   outline: none;
   color: var(--text-1);
-  font-size: 13px;
+  font-size: var(--type-supporting);
   width: 100%;
   min-width: 0;
 }
@@ -548,7 +362,7 @@ code {
 .topbar-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   /* 撑满顶栏高度：窗口按钮组要靠它 stretch 到 y=0，否则只能撑到按钮自身高度 */
   align-self: stretch;
   -webkit-app-region: no-drag;
@@ -558,13 +372,13 @@ code {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 7px 13px;
-  border-radius: 10px;
-  font-size: 13px;
+  padding: var(--space-2) 14px;
+  border-radius: var(--radius-element);
+  font-size: var(--type-supporting);
   color: var(--text-2);
   background: var(--hover-bg);
   border: 1px solid transparent;
-  transition: background 0.18s ease, color 0.18s ease, border-color 0.18s ease;
+  transition: background var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard), border-color var(--motion-fast) var(--ease-standard);
   white-space: nowrap;
 }
 
@@ -602,12 +416,12 @@ code {
 }
 
 .tbtn.sm {
-  padding: 5px 10px;
-  font-size: 12px;
+  padding: 6px 10px;
+  font-size: var(--type-supporting);
 }
 
 .tbtn.icon-only {
-  padding: 7px 9px;
+  padding: var(--space-2) 10px;
 }
 
 /*
@@ -621,7 +435,7 @@ code {
 .win-controls {
   display: flex;
   gap: 0;
-  margin-left: 8px;
+  margin-left: var(--space-2);
   /* 顶栏右内边距是 8px，抵消掉，让关闭键贴窗口右缘 */
   margin-right: -8px;
   align-self: stretch;
@@ -640,7 +454,7 @@ code {
      用户看到的就是右上角一片空白（其实按钮在，只是看不见） */
   color: var(--text-1);
   opacity: 0.72;
-  transition: background 0.15s ease, color 0.15s ease, opacity 0.15s ease;
+  transition: background var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard), opacity var(--motion-fast) var(--ease-standard);
 }
 
 .wbtn:hover {
@@ -670,9 +484,9 @@ code {
   top: calc(100% + 10px);
   right: 0;
   width: 300px;
-  padding: 16px;
+  padding: var(--space-4);
   z-index: 150;
-  border-radius: 16px;
+  border-radius: var(--radius-container);
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -681,7 +495,7 @@ code {
 .wp-section {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .wp-label {
@@ -697,7 +511,7 @@ code {
 }
 
 .wp-empty {
-  font-size: 12px;
+  font-size: var(--type-supporting);
   color: var(--text-3);
 }
 
@@ -705,7 +519,7 @@ code {
   display: flex;
   align-items: center;
   gap: 6px;
-  border-radius: 9px;
+  border-radius: var(--radius-element);
   border: 1px solid transparent;
 }
 
@@ -719,9 +533,9 @@ code {
   align-items: center;
   justify-content: space-between;
   gap: 6px;
-  padding: 7px 10px;
-  border-radius: 9px;
-  font-size: 12px;
+  padding: var(--space-2) 10px;
+  border-radius: var(--radius-element);
+  font-size: var(--type-supporting);
   color: var(--text-2);
   min-width: 0;
 }
@@ -739,8 +553,8 @@ code {
 }
 
 .wp-item-del {
-  padding: 7px 9px;
-  border-radius: 9px;
+  padding: var(--space-2) 10px;
+  border-radius: var(--radius-element);
   color: var(--text-3);
 }
 
@@ -751,7 +565,7 @@ code {
 
 .wp-actions {
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
   flex-wrap: wrap;
 }
 
@@ -788,14 +602,14 @@ code {
 .search-box {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 13px;
-  border-radius: 11px;
+  gap: var(--space-2);
+  padding: var(--space-2) 14px;
+  border-radius: var(--radius-element);
   background: var(--hover-bg);
   border: 1px solid var(--border-1);
   color: var(--text-3);
   min-width: 210px;
-  transition: border-color 0.2s ease;
+  transition: border-color var(--motion-fast) var(--ease-standard);
 }
 
 .search-box:focus-within {
@@ -807,7 +621,7 @@ code {
   border: none;
   outline: none;
   color: var(--text-1);
-  font-size: 13px;
+  font-size: var(--type-supporting);
   width: 100%;
 }
 
@@ -817,20 +631,20 @@ code {
 
 .filter-chips {
   display: flex;
-  gap: 4px;
+  gap: var(--space-1);
   background: var(--hover-bg);
-  padding: 3px;
-  border-radius: 11px;
+  padding: var(--space-1);
+  border-radius: var(--radius-element);
 }
 
 .chip {
   position: relative;
-  padding: 5px 13px;
-  border-radius: 8px;
-  font-size: 12px;
+  padding: 6px 14px;
+  border-radius: var(--radius-element);
+  font-size: var(--type-supporting);
   color: var(--text-2);
   border: 1px solid transparent;
-  transition: color 0.18s ease, background 0.18s ease, border-color 0.18s ease;
+  transition: color var(--motion-fast) var(--ease-standard), background var(--motion-fast) var(--ease-standard), border-color var(--motion-fast) var(--ease-standard);
 }
 
 .chip:hover {
@@ -860,11 +674,11 @@ code {
 }
 
 .sort-select {
-  padding: 8px 10px;
-  border-radius: 10px;
+  padding: var(--space-2) 10px;
+  border-radius: var(--radius-element);
   background: var(--hover-bg);
   border: 1px solid var(--border-1);
-  font-size: 12px;
+  font-size: var(--type-supporting);
   color: var(--text-2);
   outline: none;
 }
@@ -876,19 +690,19 @@ code {
 
 .anim-modes {
   display: flex;
-  gap: 3px;
+  gap: var(--space-1);
   background: var(--hover-bg);
-  padding: 3px;
-  border-radius: 11px;
+  padding: var(--space-1);
+  border-radius: var(--radius-element);
 }
 
 .anim-btn {
   position: relative;
-  padding: 5px 11px;
-  border-radius: 8px;
-  font-size: 12px;
+  padding: 6px var(--space-3);
+  border-radius: var(--radius-element);
+  font-size: var(--type-supporting);
   color: var(--text-2);
-  transition: color 0.18s ease;
+  transition: color var(--motion-fast) var(--ease-standard);
 }
 
 .anim-btn span {
@@ -912,12 +726,12 @@ code {
 }
 
 .library-count {
-  font-size: 13px;
+  font-size: var(--type-supporting);
   color: var(--text-2);
 }
 
 .library-hint {
-  font-size: 12px;
+  font-size: var(--type-supporting);
   color: var(--text-3);
 }
 
@@ -925,18 +739,18 @@ code {
 .lib-card-size {
   margin-left: auto;
   display: flex;
-  gap: 2px;
-  padding: 2px;
+  gap: var(--space-half);
+  padding: var(--space-half);
   background: var(--hover-bg);
-  border-radius: 9px;
+  border-radius: var(--radius-element);
 }
 
 .lib-cs-btn {
-  padding: 3px 11px;
-  border-radius: 7px;
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-element);
   font-size: 11.5px;
   color: var(--text-2);
-  transition: color 0.18s ease, background 0.18s ease;
+  transition: color var(--motion-fast) var(--ease-standard), background var(--motion-fast) var(--ease-standard);
 }
 
 .lib-cs-btn:hover {
@@ -963,7 +777,7 @@ code {
 }
 
 .wp-opacity-val {
-  font-size: 12px;
+  font-size: var(--type-supporting);
   color: var(--text-2);
   min-width: 38px;
   text-align: right;
@@ -987,17 +801,17 @@ code {
 }
 
 .empty-state h3 {
-  font-size: 16px;
+  font-size: var(--type-large);
   color: var(--text-2);
   font-weight: 500;
 }
 
 .empty-state p {
-  font-size: 13px;
+  font-size: var(--type-supporting);
 }
 
 .empty-state .tbtn {
-  margin-top: 8px;
+  margin-top: var(--space-2);
 }
 
 /* ========== 书架网格 ========== */
@@ -1033,13 +847,13 @@ code {
 .book-cover-wrap {
   position: relative;
   /* 圆角与 .mat-* 材质层对齐；实色衬底 + 1px 边框，和顶栏/侧栏/详情面板同一套语言 */
-  border-radius: 14px;
+  border-radius: var(--radius-container);
   overflow: hidden;
   box-sizing: border-box;
   background: var(--surf-solid);
   border: 1px solid var(--border-1);
   box-shadow: var(--card-shadow);
-  transition: box-shadow 0.25s ease;
+  transition: box-shadow var(--motion-fast) var(--ease-standard);
   aspect-ratio: 3 / 4;
 }
 
@@ -1056,13 +870,8 @@ code {
   width: 2px;
   z-index: 2;
   pointer-events: none;
-  /* 与新默认封面的书脊同源：细渐变，不用纯黑硬边 */
-  background: linear-gradient(
-    180deg,
-    rgba(255, 255, 255, 0.52),
-    rgba(255, 255, 255, 0.10) 42%,
-    rgba(10, 12, 20, 0.22)
-  );
+  /* Astryx：1px 语义描边，不用渐变 */
+  background: var(--color-border-emphasized);
 }
 
 .book-cover {
@@ -1073,41 +882,22 @@ code {
 }
 
 .book-cover-ph {
-  /* 与新版默认封面同源的柔和渐变，且跟随主题，不再是通透的 accent 斜渐变 */
-  background: linear-gradient(
-    155deg,
-    color-mix(in srgb, var(--accent-2) 62%, var(--surf-solid)),
-    color-mix(in srgb, var(--accent) 72%, var(--surf-solid))
-  );
+  /* Astryx：无封面时用中性实色占位 */
+  background: var(--color-neutral);
   opacity: 1;
 }
 
 .cover-glare {
-  position: absolute;
-  top: -20%;
-  width: 55%;
-  height: 140%;
-  pointer-events: none;
-  /* 去掉 filter: blur(6px) 与 mix-blend-mode：整卡常驻的大面积模糊会额外生成合成层，
-     项目约定常驻元素不用 blur（见 .mat-* 注释）。纯渐变高光视觉等价、开销为零。 */
-  background: linear-gradient(
-    100deg,
-    transparent 0%,
-    rgba(255, 255, 255, 0.10) 42%,
-    rgba(255, 255, 255, 0.20) 52%,
-    rgba(255, 255, 255, 0.08) 62%,
-    transparent 100%
-  );
-  transform: translateX(-50%) rotate(12deg);
+  display: none;
 }
 
 .format-badge {
   position: absolute;
   left: 10px;
   bottom: 10px;
-  padding: 3px 9px;
-  border-radius: 8px;
-  font-size: 10px;
+  padding: var(--space-1) 10px;
+  border-radius: var(--radius-element);
+  font-size: var(--type-supporting);
   font-weight: 600;
   letter-spacing: 0.06em;
   color: var(--text-1);
@@ -1151,7 +941,7 @@ code {
   stroke: var(--text-1);
   stroke-width: 2.6;
   stroke-linecap: round;
-  transition: stroke-dashoffset 0.35s ease;
+  transition: stroke-dashoffset var(--motion-medium) var(--ease-standard);
 }
 
 
@@ -1165,7 +955,7 @@ code {
   gap: 6px;
   opacity: 0;
   transform: translateY(6px);
-  transition: opacity 0.2s ease, transform 0.2s ease;
+  transition: opacity var(--motion-fast) var(--ease-standard), transform var(--motion-fast) var(--ease-standard);
 }
 
 .book-card:hover .card-actions {
@@ -1178,12 +968,12 @@ code {
   height: 30px;
   display: grid;
   place-items: center;
-  border-radius: 9px;
+  border-radius: var(--radius-element);
   color: var(--text-1);
   background: color-mix(in srgb, var(--chip-surface) 92%, transparent);
   border: 1px solid var(--border-1);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.10);
-  transition: background 0.15s ease, transform 0.15s ease;
+  transition: background var(--motion-fast) var(--ease-standard), transform var(--motion-fast) var(--ease-standard);
 }
 
 .card-act:hover {
@@ -1198,9 +988,9 @@ code {
 .book-meta {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: 8px 10px;
-  border-radius: 12px;
+  gap: var(--space-half);
+  padding: var(--space-2) 10px;
+  border-radius: var(--radius-container);
   /* --chip-surface 本就是实色，blur 是多余的合成层 */
   background: var(--chip-surface);
   border: 1px solid var(--border-1);
@@ -1217,7 +1007,7 @@ code {
 }
 
 .book-author {
-  font-size: 12px;
+  font-size: var(--type-supporting);
   color: var(--text-3);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1247,16 +1037,13 @@ code {
   grid-template-columns: 240px 1fr;
   gap: 26px;
   padding: 28px;
-  border-radius: 20px;
+  border-radius: var(--radius-container);
   transform-style: preserve-3d;
 }
 
-/* 详情弹层固定亚克力：在亚克力渐变下再叠一层 82% 主题面底——
-   遮罩变透后壁纸能透进弹层，但这层底保证明暗壁纸下文字都清晰 */
+/* 详情弹层：统一不透明表面，文字对比由表面本身保证 */
 .detail-panel.mat-acrylic {
-  background:
-    var(--acrylic-bg),
-    color-mix(in srgb, var(--surf-solid) 82%, transparent);
+  background: var(--color-background-surface);
 }
 
 .detail-close {
@@ -1267,7 +1054,7 @@ code {
   height: 32px;
   display: grid;
   place-items: center;
-  border-radius: 9px;
+  border-radius: var(--radius-element);
   color: var(--text-2);
   z-index: 2;
 }
@@ -1280,12 +1067,12 @@ code {
 .detail-cover-col {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .detail-cover {
   width: 100%;
-  border-radius: 14px;
+  border-radius: var(--radius-container);
   box-shadow: var(--card-shadow-hover);
   aspect-ratio: 3 / 4;
   object-fit: cover;
@@ -1300,41 +1087,41 @@ code {
 .detail-info {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding-top: 4px;
+  gap: var(--space-2);
+  padding-top: var(--space-1);
 }
 
 .detail-format {
-  font-size: 11px;
+  font-size: var(--type-supporting);
   font-weight: 600;
   letter-spacing: 0.1em;
   color: var(--accent);
 }
 
 .detail-title {
-  font-size: 24px;
+  font-size: var(--type-heading);
   font-weight: 600;
   line-height: 1.3;
 }
 
 .detail-author {
-  font-size: 14px;
+  font-size: var(--type-body);
   color: var(--text-2);
 }
 
 .detail-desc {
-  font-size: 13px;
+  font-size: var(--type-supporting);
   color: var(--text-2);
-  margin-top: 4px;
+  margin-top: var(--space-1);
 }
 
 .detail-row {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 7px 0;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
   border-top: 1px solid var(--border-1);
-  font-size: 13px;
+  font-size: var(--type-supporting);
 }
 
 .detail-key {
@@ -1348,7 +1135,7 @@ code {
 }
 
 .detail-val.path {
-  font-size: 11px;
+  font-size: var(--type-supporting);
   color: var(--text-3);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1369,16 +1156,16 @@ code {
 .detail-actions {
   display: flex;
   gap: 10px;
-  margin-top: 16px;
+  margin-top: var(--space-4);
   padding-top: 14px;
   border-top: 1px solid var(--border-1);
 }
 
 .cover-tip {
-  margin-top: 12px;
-  padding: 10px 12px;
-  border-radius: 10px;
-  font-size: 12px;
+  margin-top: var(--space-3);
+  padding: 10px var(--space-3);
+  border-radius: var(--radius-element);
+  font-size: var(--type-supporting);
   color: var(--text-2);
   background: var(--hover-bg);
   border: 1px dashed var(--border-2);
@@ -1391,14 +1178,13 @@ code {
   left: 50%;
   transform: translateX(-50%);
   z-index: 300;
-  padding: 10px 20px;
-  border-radius: 12px;
-  font-size: 13px;
+  padding: 10px var(--space-5);
+  border-radius: var(--radius-container);
+  font-size: var(--type-supporting);
   color: var(--text-1);
   background: var(--surf-solid);
   border: 1px solid var(--border-2);
   box-shadow: var(--card-shadow-hover);
-  backdrop-filter: blur(12px);
 }
 
 /* ---------- 动效基元：滚动手感 / 文字微光 / sonner 主题 ---------- */
@@ -1413,7 +1199,7 @@ code {
   height: 2px;
   margin-bottom: -2px;
   transform-origin: 0 50%;
-  background: linear-gradient(90deg, var(--accent, #4c8dff), color-mix(in srgb, var(--accent, #4c8dff) 55%, transparent));
+  background: var(--color-accent);
   opacity: 0.85;
   pointer-events: none;
   z-index: 6;
@@ -1421,19 +1207,10 @@ code {
 
 /* 文字微光：渐变位移走合成线程；降级由 prefers-reduced-motion 兜底 */
 .text-shimmer {
-  background: linear-gradient(
-    100deg,
-    var(--text-2) 20%,
-    var(--text-1) 40%,
-    color-mix(in srgb, var(--accent, #4c8dff) 70%, var(--text-1)) 52%,
-    var(--text-1) 64%,
-    var(--text-2) 84%
-  );
-  background-size: 260% 100%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  animation: shimmer-slide var(--shimmer-duration, 3.6s) linear infinite;
+  color: var(--color-text);
+  background: none;
+  -webkit-background-clip: border-box;
+  background-clip: border-box;
 }
 
 @keyframes shimmer-slide {
@@ -1455,13 +1232,12 @@ code {
 
 /* sonner 用 CSS 变量取主题，避免它自带的白底在深色下突兀 */
 .toaster-host [data-sonner-toast] {
-  font-size: 13px;
+  font-size: var(--type-supporting);
   color: var(--text-1);
   background: var(--surf-solid);
   border: 1px solid var(--border-2);
-  border-radius: 12px;
+  border-radius: var(--radius-container);
   box-shadow: var(--card-shadow-hover);
-  backdrop-filter: blur(12px);
 }
 
 .toaster-host [data-sonner-toast][data-type='success'] {
@@ -1484,22 +1260,22 @@ code {
 .settings-page {
   display: grid;
   grid-template-columns: 168px 1fr;
-  gap: 20px;
+  gap: var(--space-5);
   align-items: start;
 }
 
 .settings-nav {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-1);
   position: sticky;
   top: 0;
 }
 
 .set-nav-btn {
   position: relative;
-  padding: 3px;
-  border-radius: 11px;
+  padding: var(--space-1);
+  border-radius: var(--radius-element);
   text-align: left;
 }
 
@@ -1508,12 +1284,12 @@ code {
   z-index: 1;
   display: flex;
   align-items: center;
-  gap: 9px;
-  padding: 8px 12px;
-  border-radius: 9px;
-  font-size: 13px;
+  gap: 10px;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-element);
+  font-size: var(--type-supporting);
   color: var(--text-2);
-  transition: color 0.18s ease, background 0.18s ease;
+  transition: color var(--motion-fast) var(--ease-standard), background var(--motion-fast) var(--ease-standard);
 }
 
 .set-nav-btn:hover .set-nav-inner {
@@ -1529,7 +1305,7 @@ code {
 .set-nav-pill {
   position: absolute;
   inset: 0;
-  border-radius: 11px;
+  border-radius: var(--radius-element);
   background: var(--active-bg);
   border: 1px solid var(--border-1);
 }
@@ -1543,9 +1319,9 @@ code {
 
 
 .set-block h3 {
-  font-size: 15px;
+  font-size: var(--type-body);
   font-weight: 600;
-  margin-bottom: 4px;
+  margin-bottom: var(--space-1);
 }
 
 /* 说明文字：从 text-3(42%) 提到 text-2(62%)。
@@ -1555,16 +1331,16 @@ code {
   font-size: 12.5px;
   line-height: 1.68;
   color: var(--text-2);
-  margin: 4px 0 12px;
+  margin: var(--space-1) 0 var(--space-3);
 }
 
 .seg {
   display: inline-flex;
-  gap: 3px;
-  padding: 3px;
-  border-radius: 11px;
+  gap: var(--space-1);
+  padding: var(--space-1);
+  border-radius: var(--radius-element);
   background: var(--hover-bg);
-  margin-top: 8px;
+  margin-top: var(--space-2);
 }
 
 /* 语言切换：5 种语言一行放不下时折行 */
@@ -1579,10 +1355,10 @@ code {
 
 .seg button {
   padding: 6px 18px;
-  border-radius: 8px;
-  font-size: 13px;
+  border-radius: var(--radius-element);
+  font-size: var(--type-supporting);
   color: var(--text-2);
-  transition: all 0.18s ease;
+  transition: all var(--motion-fast) var(--ease-standard);
 }
 
 .seg button:hover {
@@ -1607,11 +1383,11 @@ code {
   flex-direction: column;
   gap: 6px;
   padding: 10px;
-  border-radius: 13px;
+  border-radius: var(--radius-container);
   border: 1px solid var(--border-1);
   background: var(--hover-bg);
   text-align: left;
-  transition: border-color 0.18s ease, transform 0.18s ease;
+  transition: border-color var(--motion-fast) var(--ease-standard), transform var(--motion-fast) var(--ease-standard);
 }
 
 .material-card:hover {
@@ -1624,7 +1400,7 @@ code {
 
 .material-preview {
   height: 56px;
-  border-radius: 9px;
+  border-radius: var(--radius-element);
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -1642,7 +1418,7 @@ code {
 
 .mp-bar {
   height: 7px;
-  border-radius: 4px;
+  border-radius: var(--radius-inner);
   background: var(--text-3);
   width: 80%;
 }
@@ -1652,22 +1428,22 @@ code {
 }
 
 .material-name {
-  font-size: 13px;
+  font-size: var(--type-supporting);
   font-weight: 500;
   color: var(--text-1);
 }
 
 .material-hint {
-  font-size: 11px;
+  font-size: var(--type-supporting);
   color: var(--text-3);
 }
 
 .switch-row {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 10px;
   margin-top: 14px;
-  font-size: 13px;
+  font-size: var(--type-supporting);
   color: var(--text-2);
   cursor: pointer;
 }
@@ -1681,7 +1457,7 @@ code {
 .switch-row em {
   font-style: normal;
   color: var(--text-3);
-  font-size: 12px;
+  font-size: var(--type-supporting);
 }
 
 .anim-grid {
@@ -1700,13 +1476,13 @@ code {
 .anim-card {
   display: flex;
   flex-direction: column;
-  gap: 3px;
-  padding: 12px 14px;
-  border-radius: 12px;
+  gap: var(--space-1);
+  padding: var(--space-3) 14px;
+  border-radius: var(--radius-container);
   border: 1px solid var(--border-1);
   background: var(--hover-bg);
   text-align: left;
-  transition: border-color 0.18s ease, transform 0.18s ease;
+  transition: border-color var(--motion-fast) var(--ease-standard), transform var(--motion-fast) var(--ease-standard);
 }
 
 .anim-card:hover {
@@ -1718,13 +1494,13 @@ code {
 }
 
 .anim-name {
-  font-size: 13px;
+  font-size: var(--type-supporting);
   font-weight: 500;
   color: var(--text-1);
 }
 
 .anim-hint {
-  font-size: 11px;
+  font-size: var(--type-supporting);
   color: var(--text-3);
   /* 描述已统一 9 字符等长，锁单行保证所有卡片同高 */
   white-space: nowrap;
@@ -1735,7 +1511,7 @@ code {
 .slider-row {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .slider-row input[type="range"] {
@@ -1744,7 +1520,7 @@ code {
 }
 
 .slider-val {
-  font-size: 12px;
+  font-size: var(--type-supporting);
   color: var(--text-2);
   width: 40px;
   text-align: right;
@@ -1757,15 +1533,15 @@ code {
 .shortcut-row {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-3);
   margin: 10px 0 14px;
 }
 
 .shortcut-key {
   padding: 6px 14px;
-  border-radius: 9px;
+  border-radius: var(--radius-element);
   font-family: inherit;
-  font-size: 14px;
+  font-size: var(--type-body);
   font-weight: 600;
   color: var(--text-1);
   background: var(--hover-bg);
@@ -1777,19 +1553,19 @@ code {
   list-style: none;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 /* 二级设置项统一圆角矩形卡片：不再用分隔线行 */
 .kv-list li {
   display: flex;
   justify-content: space-between;
-  gap: 16px;
-  padding: 9px 12px;
+  gap: var(--space-4);
+  padding: 10px var(--space-3);
   border: 1px solid var(--border-1);
-  border-radius: 10px;
+  border-radius: var(--radius-element);
   background: var(--hover-bg);
-  font-size: 13px;
+  font-size: var(--type-supporting);
 }
 
 .kv-list li span:first-child {
@@ -1803,7 +1579,7 @@ code {
 }
 
 .set-block .tbtn {
-  margin-top: 12px;
+  margin-top: var(--space-3);
 }
 
 /* ========== 占位页（探索/笔记） ========== */
@@ -1812,20 +1588,20 @@ code {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 12px;
+  gap: var(--space-3);
   padding: 120px 0;
   color: var(--text-3);
   text-align: center;
 }
 
 .placeholder-page h2 {
-  font-size: 18px;
+  font-size: var(--type-large);
   font-weight: 500;
   color: var(--text-2);
 }
 
 .placeholder-page p {
-  font-size: 13px;
+  font-size: var(--type-supporting);
 }
 
 .placeholder-page .tbtn {
@@ -1842,13 +1618,13 @@ code {
 .fit-card {
   display: flex;
   flex-direction: column;
-  gap: 3px;
-  padding: 11px 13px;
-  border-radius: 12px;
+  gap: var(--space-1);
+  padding: var(--space-3) 14px;
+  border-radius: var(--radius-container);
   border: 1px solid var(--border-1);
   background: var(--hover-bg);
   text-align: left;
-  transition: border-color 0.18s ease, transform 0.18s ease;
+  transition: border-color var(--motion-fast) var(--ease-standard), transform var(--motion-fast) var(--ease-standard);
 }
 
 .fit-card:hover {
@@ -1860,20 +1636,20 @@ code {
 }
 
 .fit-name {
-  font-size: 13px;
+  font-size: var(--type-supporting);
   font-weight: 500;
   color: var(--text-1);
 }
 
 .fit-hint {
-  font-size: 11px;
+  font-size: var(--type-supporting);
   color: var(--text-3);
   line-height: 1.45;
 }
 
 .wp-fit-quick {
   display: flex;
-  gap: 4px;
+  gap: var(--space-1);
 }
 
 .wp-item-check {
@@ -1900,7 +1676,7 @@ code {
   width: 11px;
   height: 1.5px;
   background: currentColor;
-  border-radius: 1px;
+  border-radius: var(--radius-inner);
 }
 
 .wp-item-x::before {
@@ -1933,9 +1709,9 @@ code {
 .update-badge {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 5px 11px;
-  border-radius: 999px;
+  gap: 6px;
+  padding: 6px var(--space-3);
+  border-radius: var(--radius-full);
   font-size: 12.5px;
   font-weight: 500;
 }
@@ -1951,23 +1727,23 @@ code {
   font-size: 12.5px;
   line-height: 1.6;
   color: var(--text-2);
-  margin: 8px 0 0;
+  margin: var(--space-2) 0 0;
 }
 .update-msg.err {
   color: var(--err);
 }
 .update-new {
   margin-top: 10px;
-  padding: 12px 14px;
-  border-radius: 12px;
+  padding: var(--space-3) 14px;
+  border-radius: var(--radius-container);
   background: var(--surface-inset);
   border: 1px solid var(--surface-inset-line);
 }
 .update-title {
-  font-size: 13px;
+  font-size: var(--type-supporting);
   font-weight: 600;
   color: var(--text-1);
-  margin: 0 0 4px;
+  margin: 0 0 var(--space-1);
 }
 .update-notes {
   margin-top: 10px;
@@ -1979,14 +1755,14 @@ code {
   color: var(--accent);
 }
 .update-notes pre {
-  margin: 8px 0 0;
-  padding: 10px 12px;
-  border-radius: 8px;
+  margin: var(--space-2) 0 0;
+  padding: 10px var(--space-3);
+  border-radius: var(--radius-element);
   background: var(--hover-bg);
   white-space: pre-wrap;
   word-break: break-word;
   font-family: inherit;
-  font-size: 12px;
+  font-size: var(--type-supporting);
   line-height: 1.6;
   max-height: 240px;
   overflow: auto;
@@ -2001,13 +1777,13 @@ code {
 .webdav-form input,
 .webdav-form-row input {
   width: 100%;
-  padding: 9px 12px;
-  border-radius: 10px;
+  padding: 10px var(--space-3);
+  border-radius: var(--radius-element);
   /* 内嵌面：与卡片同族但更淡，读起来是"凹槽"而不是"黑块" */
   background: var(--surface-inset);
   border: 1px solid var(--surface-inset-line);
   outline: none;
-  font-size: 13px;
+  font-size: var(--type-supporting);
   color: var(--text-1);
 }
 
@@ -2029,14 +1805,14 @@ code {
 .webdav-browser {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .webdav-crumb {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--space-3);
   flex-wrap: wrap;
 }
 
@@ -2045,8 +1821,8 @@ code {
   color: var(--text-2);
   font-family: "Cascadia Code", Consolas, monospace;
   background: var(--hover-bg);
-  padding: 4px 10px;
-  border-radius: 8px;
+  padding: var(--space-1) 10px;
+  border-radius: var(--radius-element);
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2056,16 +1832,16 @@ code {
 .webdav-status {
   font-size: 12.5px;
   color: var(--text-2);
-  padding: 8px 12px;
+  padding: var(--space-2) var(--space-3);
   background: var(--hover-bg);
-  border-radius: 10px;
+  border-radius: var(--radius-element);
 }
 
 .webdav-error {
   font-size: 12.5px;
   color: var(--err);
-  padding: 8px 12px;
-  border-radius: 10px;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-element);
   background: color-mix(in srgb, var(--err) 12%, transparent);
   border: 1px solid color-mix(in srgb, var(--err) 40%, transparent);
 }
@@ -2073,10 +1849,10 @@ code {
 .webdav-list {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-1);
   max-height: 320px;
   overflow-y: auto;
-  border-radius: 12px;
+  border-radius: var(--radius-container);
   padding: 6px;
 }
 
@@ -2084,14 +1860,14 @@ code {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 8px 10px;
-  border-radius: 9px;
-  font-size: 13px;
+  padding: var(--space-2) 10px;
+  border-radius: var(--radius-element);
+  font-size: var(--type-supporting);
   color: var(--text-1);
   background: none;
   text-align: left;
   width: 100%;
-  transition: background 0.15s ease;
+  transition: background var(--motion-fast) var(--ease-standard);
 }
 
 .webdav-row:hover {
@@ -2126,20 +1902,20 @@ code {
 }
 
 .webdav-size {
-  font-size: 11px;
+  font-size: var(--type-supporting);
   color: var(--text-3);
   flex-shrink: 0;
   font-variant-numeric: tabular-nums;
 }
 
 .webdav-go {
-  font-size: 11px;
+  font-size: var(--type-supporting);
   color: var(--text-3);
   flex-shrink: 0;
 }
 
 .webdav-empty {
-  padding: 24px;
+  padding: var(--space-6);
   text-align: center;
   font-size: 12.5px;
   color: var(--text-3);
@@ -2147,8 +1923,8 @@ code {
 
 .webdav-result {
   font-size: 12.5px;
-  padding: 10px 12px;
-  border-radius: 10px;
+  padding: 10px var(--space-3);
+  border-radius: var(--radius-element);
 }
 
 .webdav-result.ok {
@@ -2171,7 +1947,7 @@ code {
 @media (max-width: 900px) {
   .tabbar {
     width: 64px;
-    padding: 16px 8px;
+    padding: var(--space-4) var(--space-2);
   }
   .tab-btn-inner span:last-child {
     display: none;
@@ -2197,8 +1973,6 @@ code {
 .webdav-form-row input,
 .shortcut-input {
   background: var(--acrylic-card) !important;
-  backdrop-filter: blur(calc(var(--glass-blur) * 0.8)) saturate(var(--glass-sat));
-  -webkit-backdrop-filter: blur(calc(var(--glass-blur) * 0.8)) saturate(var(--glass-sat));
   border-color: var(--acrylic-card-border);
 }
 
@@ -2214,8 +1988,6 @@ code {
 /* 弹层同样亚克力化 */
 .wp-panel {
   background: color-mix(in srgb, var(--acrylic-card) 88%, transparent);
-  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
-  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
 }
 
 
@@ -2224,7 +1996,7 @@ code {
 .settings-nav {
   background: var(--dock-bg);
   border-radius: var(--radius-window);
-  padding: 12px 10px;
+  padding: var(--space-3) 10px;
 }
 
 /*
@@ -2240,8 +2012,6 @@ code {
 .set-block,
 .webdav-list {
   background: var(--surface-card);
-  backdrop-filter: blur(calc(var(--glass-blur) * 0.8)) saturate(var(--glass-sat));
-  -webkit-backdrop-filter: blur(calc(var(--glass-blur) * 0.8)) saturate(var(--glass-sat));
   border: 1px solid var(--acrylic-card-border);
 }
 
@@ -2259,8 +2029,8 @@ code {
 /* set-block 只管尺寸：底色/边框/模糊由上方「第 1 层：区块卡」统一提供，
    避免同一条视觉规则在两处定义、靠书写顺序决胜负 */
 .set-block {
-  border-radius: 16px;
-  padding: 18px 20px;
+  border-radius: var(--radius-container);
+  padding: 18px var(--space-5);
   margin-bottom: 14px;
 }
 
@@ -2273,7 +2043,7 @@ code {
 .detail-progress-bar {
   flex: 1;
   height: 5px;
-  border-radius: 3px;
+  border-radius: var(--radius-inner);
   background: color-mix(in srgb, var(--text-1) 14%, transparent);
   overflow: hidden;
 }
@@ -2281,9 +2051,9 @@ code {
 .detail-progress-bar > span {
   display: block;
   height: 100%;
-  border-radius: 3px;
+  border-radius: var(--radius-inner);
   background: var(--accent);
-  transition: width 0.25s ease;
+  transition: width var(--motion-fast) var(--ease-standard);
 }
 
 
@@ -2303,10 +2073,10 @@ code {
 .detail-bm-list {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  margin: 2px 0 6px;
-  padding: 6px 8px;
-  border-radius: 10px;
+  gap: var(--space-half);
+  margin: var(--space-half) 0 6px;
+  padding: 6px var(--space-2);
+  border-radius: var(--radius-element);
   background: var(--acrylic-card);
   border: 1px solid var(--acrylic-card-border);
 }
@@ -2320,9 +2090,9 @@ code {
 .detail-bm-jump {
   flex: 1;
   min-width: 0;
-  padding: 5px 6px;
+  padding: 6px 6px;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--radius-inner);
   background: transparent;
   color: var(--text-1);
   font-size: 12.5px;
@@ -2342,7 +2112,7 @@ code {
   width: 20px;
   height: 20px;
   border: none;
-  border-radius: 5px;
+  border-radius: var(--radius-inner);
   background: transparent;
   color: var(--text-3);
   cursor: pointer;
@@ -2355,14 +2125,14 @@ code {
 }
 
 .detail-bm-more {
-  padding: 4px 6px;
+  padding: var(--space-1) 6px;
   font-size: 11.5px;
   color: var(--text-3);
 }
 
 /* ---------- 笔记页（P1） ---------- */
 .notes-page {
-  padding: 6px 4px 40px;
+  padding: 6px var(--space-1) var(--space-10);
   max-width: 980px;
 }
 
@@ -2370,14 +2140,14 @@ code {
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
-  gap: 16px;
+  gap: var(--space-4);
   margin-bottom: 18px;
 }
 
 .notes-head h2 {
-  font-size: 19px;
+  font-size: var(--type-title);
   font-weight: 600;
-  margin: 0 0 4px;
+  margin: 0 0 var(--space-1);
 }
 
 .notes-sub {
@@ -2389,13 +2159,13 @@ code {
 .notes-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .notes-select {
   height: 30px;
-  padding: 0 8px;
-  border-radius: 8px;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-element);
   border: 1px solid var(--acrylic-card-border);
   background: var(--acrylic-card);
   color: var(--text-1);
@@ -2407,7 +2177,7 @@ code {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   padding: 72px 0;
   color: var(--text-2);
   text-align: center;
@@ -2415,7 +2185,7 @@ code {
 
 .notes-empty h3 {
   margin: 6px 0 0;
-  font-size: 15px;
+  font-size: var(--type-body);
   color: var(--text-1);
 }
 
@@ -2433,13 +2203,13 @@ code {
 .notes-group-head {
   display: flex;
   align-items: baseline;
-  gap: 8px;
-  margin-bottom: 8px;
-  padding-left: 2px;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+  padding-left: var(--space-half);
 }
 
 .notes-book {
-  font-size: 14px;
+  font-size: var(--type-body);
   font-weight: 600;
 }
 
@@ -2451,9 +2221,9 @@ code {
 .note-card {
   border: 1px solid var(--acrylic-card-border);
   background: var(--acrylic-card);
-  border-radius: 12px;
-  padding: 10px 12px;
-  margin-bottom: 8px;
+  border-radius: var(--radius-container);
+  padding: 10px var(--space-3);
+  margin-bottom: var(--space-2);
 }
 
 .note-card-top {
@@ -2485,9 +2255,9 @@ code {
 }
 
 .note-quote {
-  font-size: 13px;
+  font-size: var(--type-supporting);
   line-height: 1.62;
-  padding-left: 9px;
+  padding-left: 10px;
   border-left: 3px solid rgba(250, 204, 21, 0.45);
   display: -webkit-box;
   -webkit-line-clamp: 4;
@@ -2507,7 +2277,7 @@ code {
   display: grid;
   place-items: center;
   border: none;
-  border-radius: 7px;
+  border-radius: var(--radius-element);
   background: transparent;
   color: var(--text-2);
   cursor: pointer;
@@ -2521,10 +2291,10 @@ code {
 .note-mine {
   display: block;
   width: 100%;
-  margin-top: 8px;
-  padding: 7px 9px;
+  margin-top: var(--space-2);
+  padding: var(--space-2) 10px;
   border: none;
-  border-radius: 8px;
+  border-radius: var(--radius-element);
   background: color-mix(in srgb, var(--text-1) 5%, transparent);
   color: var(--text-1);
   font-size: 12.5px;
@@ -2545,9 +2315,9 @@ code {
 .note-edit textarea {
   width: 100%;
   min-height: 68px;
-  margin-top: 8px;
-  padding: 8px 9px;
-  border-radius: 8px;
+  margin-top: var(--space-2);
+  padding: var(--space-2) 10px;
+  border-radius: var(--radius-element);
   border: 1px solid var(--acrylic-card-border);
   background: color-mix(in srgb, var(--surf-1) 55%, transparent);
   color: var(--text-1);
@@ -2565,8 +2335,8 @@ code {
 .note-edit-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
-  margin-top: 8px;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
 }
 
 /* ---------- 书架分组（B2） ---------- */
@@ -2574,10 +2344,10 @@ code {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin: 10px 0 2px;
+  margin: 10px 0 var(--space-half);
   overflow-x: auto;
   scrollbar-width: none;
-  padding-bottom: 2px;
+  padding-bottom: var(--space-half);
 }
 
 .shelf-bar::-webkit-scrollbar {
@@ -2591,13 +2361,13 @@ code {
   flex: none;
   height: 28px;
   padding: 0 10px;
-  border-radius: 8px;
+  border-radius: var(--radius-element);
   border: 1px solid transparent;
   background: color-mix(in srgb, var(--text-1) 6%, transparent);
   color: var(--text-2);
   font-size: 12.5px;
   cursor: pointer;
-  transition: background 0.16s ease, color 0.16s ease;
+  transition: background var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard);
 }
 
 .shelf-chip:hover {
@@ -2617,7 +2387,7 @@ code {
 }
 
 .shelf-chip-count {
-  font-size: 11px;
+  font-size: var(--type-supporting);
   opacity: 0.7;
   font-variant-numeric: tabular-nums;
 }
@@ -2626,10 +2396,10 @@ code {
   flex: none;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-1);
   height: 28px;
-  padding: 0 9px;
-  border-radius: 8px;
+  padding: 0 10px;
+  border-radius: var(--radius-element);
   border: 1px dashed var(--acrylic-card-border);
   background: transparent;
   color: var(--text-2);
@@ -2646,8 +2416,8 @@ code {
   flex: none;
   width: 120px;
   height: 28px;
-  padding: 0 8px;
-  border-radius: 8px;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-element);
   border: 1px solid var(--accent);
   background: var(--acrylic-card);
   color: var(--text-1);
@@ -2662,10 +2432,10 @@ code {
 }
 
 .shelf-section {
-  border-radius: 12px;
-  padding: 2px 0 6px;
+  border-radius: var(--radius-container);
+  padding: var(--space-half) 0 6px;
   border: 1px solid transparent;
-  transition: border-color 0.16s ease, background 0.16s ease;
+  transition: border-color var(--motion-fast) var(--ease-standard), background var(--motion-fast) var(--ease-standard);
 }
 
 /* 拖拽中把可放置区域可视化出来 */
@@ -2683,7 +2453,7 @@ code {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 2px 4px 8px;
+  padding: var(--space-half) var(--space-1) var(--space-2);
 }
 
 .shelf-collapse {
@@ -2692,7 +2462,7 @@ code {
   display: grid;
   place-items: center;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--radius-inner);
   background: transparent;
   color: var(--text-2);
   cursor: pointer;
@@ -2705,8 +2475,8 @@ code {
 
 .shelf-caret {
   display: inline-block;
-  font-size: 11px;
-  transition: transform 0.16s ease;
+  font-size: var(--type-supporting);
+  transition: transform var(--motion-fast) var(--ease-standard);
 }
 
 .shelf-caret.collapsed {
@@ -2714,7 +2484,7 @@ code {
 }
 
 .shelf-name {
-  font-size: 13px;
+  font-size: var(--type-supporting);
   font-weight: 600;
   color: var(--text-1);
   cursor: default;
@@ -2733,12 +2503,12 @@ code {
   display: grid;
   place-items: center;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--radius-inner);
   background: transparent;
   color: var(--text-3);
   opacity: 0;
   cursor: pointer;
-  transition: opacity 0.16s ease;
+  transition: opacity var(--motion-fast) var(--ease-standard);
 }
 
 .shelf-head:hover .shelf-del {
@@ -2753,11 +2523,11 @@ code {
 .shelf-rename {
   height: 24px;
   padding: 0 6px;
-  border-radius: 6px;
+  border-radius: var(--radius-inner);
   border: 1px solid var(--accent);
   background: var(--acrylic-card);
   color: var(--text-1);
-  font-size: 13px;
+  font-size: var(--type-supporting);
   outline: none;
 }
 
@@ -2765,11 +2535,11 @@ code {
   display: grid;
   place-items: center;
   min-height: 72px;
-  border-radius: 10px;
+  border-radius: var(--radius-element);
   border: 1px dashed var(--acrylic-card-border);
   color: var(--text-2);
   font-size: 12.5px;
-  margin-bottom: 4px;
+  margin-bottom: var(--space-1);
 }
 
 /* 拖拽落点指示（卡片左右半边） */
@@ -2784,7 +2554,7 @@ code {
   top: 4px;
   bottom: 22px;
   width: 3px;
-  border-radius: 2px;
+  border-radius: var(--radius-inner);
   background: var(--accent);
   box-shadow: 0 0 8px color-mix(in srgb, var(--accent) 70%, transparent);
   z-index: 5;
@@ -2809,24 +2579,23 @@ code {
   z-index: 200;
   display: grid;
   place-items: center;
-  animation: dz-fade-in 0.16s ease both;
+  animation: dz-fade-in var(--motion-fast) var(--ease-standard) both;
   /* 事件全部交给 window 上的监听器，遮罩本身不拦截指针 */
   pointer-events: none;
   background: color-mix(in srgb, var(--bg-fallback) 62%, transparent);
-  backdrop-filter: saturate(120%);
 }
 
 .dropzone-card {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   width: min(520px, calc(100vw - 96px));
   padding: 30px 28px 26px;
-  border-radius: 18px;
+  border-radius: var(--radius-container);
   border: 1.5px dashed color-mix(in srgb, var(--accent) 55%, transparent);
   background: var(--acrylic-card);
-  box-shadow: 0 26px 64px rgba(0, 0, 0, 0.32);
+  box-shadow: var(--shadow-high);
   text-align: center;
 }
 
@@ -2840,14 +2609,14 @@ code {
   place-items: center;
   width: 54px;
   height: 54px;
-  margin-bottom: 4px;
-  border-radius: 15px;
+  margin-bottom: var(--space-1);
+  border-radius: var(--radius-container);
   background: color-mix(in srgb, var(--accent) 18%, transparent);
   color: color-mix(in srgb, var(--accent) 85%, var(--text-1));
 }
 
 .dropzone-title {
-  font-size: 16px;
+  font-size: var(--type-large);
   font-weight: 600;
   color: var(--text-1);
 }
@@ -2867,7 +2636,7 @@ code {
 }
 
 .dropzone-hint {
-  margin-top: 2px;
+  margin-top: var(--space-half);
   font-size: 11.5px;
   color: var(--text-3);
 }
@@ -2876,7 +2645,7 @@ code {
   width: 100%;
   height: 5px;
   margin-top: 10px;
-  border-radius: 3px;
+  border-radius: var(--radius-inner);
   background: color-mix(in srgb, var(--text-1) 12%, transparent);
   overflow: hidden;
 }
@@ -2884,9 +2653,9 @@ code {
 .dropzone-bar span {
   display: block;
   height: 100%;
-  border-radius: 3px;
+  border-radius: var(--radius-inner);
   background: var(--accent);
-  transition: width 0.25s ease;
+  transition: width var(--motion-fast) var(--ease-standard);
 }
 
 
@@ -2911,7 +2680,7 @@ code {
 }
 
 .dropzone-card {
-  animation: dz-card-in 0.2s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: dz-card-in 0.2s var(--ease-standard) both;
 }
 
 /* 懒加载页面的占位：保持内容区高度，避免切页时布局跳一下 */
@@ -2922,8 +2691,8 @@ code {
 /* 内置壁纸标签 */
 .wp-badge {
   flex: none;
-  padding: 1px 6px;
-  border-radius: 5px;
+  padding: var(--space-half) 6px;
+  border-radius: var(--radius-inner);
   font-size: 10.5px;
   line-height: 1.5;
   color: var(--text-2);
@@ -2938,7 +2707,7 @@ code {
 }
 
 .wp-panel .num-field-row {
-  margin: 4px 0 0;
+  margin: var(--space-1) 0 0;
 }
 
 .wp-panel .num-hint {
@@ -2957,11 +2726,11 @@ code {
 }
 
 ::view-transition-old(page) {
-  animation: vt-page-out 150ms cubic-bezier(0.4, 0, 0.6, 1) both;
+  animation: vt-page-out 150ms var(--ease-standard) both;
 }
 
 ::view-transition-new(page) {
-  animation: vt-page-in 240ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+  animation: vt-page-in 240ms var(--ease-standard) both;
 }
 
 @keyframes vt-page-out {
@@ -2991,7 +2760,7 @@ code {
 
 ::view-transition-group(book-cover) {
   animation-duration: 320ms;
-  animation-timing-function: cubic-bezier(0.22, 0.61, 0.36, 1);
+  animation-timing-function: var(--ease-standard);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -3000,4 +2769,31 @@ code {
   ::view-transition-new(*) {
     animation: none !important;
   }
+}
+
+/* ========== 表面规范展示（Astryx 重构后替代材质选择器） ========== */
+.surface-tokens {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+.surface-token {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--control-md);
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-element);
+  border: 1px solid var(--color-border);
+  background: var(--color-background-surface);
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--type-supporting);
+}
+.surface-token i {
+  width: var(--space-2);
+  height: var(--space-2);
+  border-radius: var(--radius-full);
+  background: var(--color-accent);
 }

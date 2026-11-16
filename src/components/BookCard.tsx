@@ -103,8 +103,9 @@ export function BookCard({
     const rect = e.currentTarget.getBoundingClientRect()
     const px = (e.clientX - rect.left) / rect.width - 0.5
     const py = (e.clientY - rect.top) / rect.height - 0.5
-    ry.set(px * 12)
-    rx.set(-py * 10)
+    /* Astryx：不做 3D 倾斜跟随（装饰性动效） */
+    ry.set(0)
+    rx.set(0)
   }
 
   const onLeave = () => {
@@ -129,7 +130,7 @@ export function BookCard({
       exit={exitVariants}
       /* layout（不是 position）：封面尺寸切换（小/中/大）时宽高一起补间，只是挪位的用不上 */
       layout
-      whileHover={{ y: -10, scale: 1.035, transition: { type: 'spring', stiffness: 400, damping: 26 } }}
+      /* Astryx：hover 由 CSS alpha tint 表达，不做装饰性放大 */
       onClick={(e) => openBookWithCover(book.id, e.currentTarget as HTMLElement)}
       ref={cardRef}
       data-book-id={book.id}

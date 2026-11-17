@@ -188,7 +188,8 @@
   --shadow-low: 0 1px 2px rgba(20, 24, 32, 0.08);
   --shadow-med: 0 4px 12px rgba(20, 24, 32, 0.1);
   --shadow-high: 0 12px 28px rgba(20, 24, 32, 0.14);
-  --detail-scrim: rgba(28, 32, 40, 0.32);
+  /* overlay/modal 层：alpha tint 但要有足够压暗，浅色下 0.32 会让壁纸抢过弹层 */
+  --detail-scrim: rgba(28, 32, 40, 0.48);
   /* 浅色：页面级底色半透明让壁纸透出；提亮罩必须很轻，
      否则「白罩 + 白表面」会把彩色壁纸洗成粉白，表现为壁纸显示错误。 */
   --dock-bg: rgba(233, 237, 244, var(--dock-opacity, 0.55));

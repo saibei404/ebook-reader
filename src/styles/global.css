@@ -1018,30 +1018,32 @@ code {
 .detail-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 100;
+  z-index: var(--z-overlay);
   display: grid;
   place-items: center;
   background: var(--detail-scrim);
-  /* 不用 backdrop-filter：这是覆盖整屏的大面积模糊层，每帧都要合成整个视口。
-     本项目此前就因为「材质弹层反复创建/销毁大面积 blur」在 WebView2 合成器上
-     触发过 GPU 崩溃，常驻/全屏元素一律不用 blur（见上方 .mat-* 注释）。
-     改用稍实的主题色罩，颜色统一且没有合成开销。 */
-  perspective: 1400px;
+  /* 不用 backdrop-filter（大面积 blur 曾触发 WebView2 GPU 崩溃）。
+     也不再用 perspective/preserve-3d：那是旧版 3D 翻卡的遗留，
+     会强制生成 3D 合成层，弹层内容出现半透明/错位（用户实拍反馈）。 */
 }
 
 .detail-panel {
+  position: relative;
   width: min(760px, calc(100vw - 80px));
   max-height: calc(100vh - 90px);
   overflow-y: auto;
   display: grid;
-  grid-template-columns: 240px 1fr;
-  gap: 26px;
-  padding: 28px;
+  /* minmax(0,1fr)：长路径/长标题不会把信息列撑破弹层 */
+  grid-template-columns: 240px minmax(0, 1fr);
+  gap: var(--space-6);
+  padding: var(--space-6);
   border-radius: var(--radius-container);
-  transform-style: preserve-3d;
+  /* 独立、恒不透明的表面；不再依赖 mat-acrylic 的历史材质类 */
+  background: var(--color-background-surface);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-high);
 }
 
-/* 详情弹层：统一不透明表面，文字对比由表面本身保证 */
 .detail-panel.mat-acrylic {
   background: var(--color-background-surface);
 }
@@ -1343,14 +1345,23 @@ code {
   margin-top: var(--space-2);
 }
 
-/* 语言切换：5 种语言一行放不下时折行 */
+/* 语言切换：5 种语言严格等分一行。
+ * 旧版 flex:1 0 30% 折成 3+2，第二行两个被拉到 333px、第一行三个只有 221px，
+ * 宽度明显不齐；用 minmax(0,1fr) 保证每列等宽且不会被内容撑破。 */
 .seg.lang-seg {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
 }
 
 .seg.lang-seg button {
-  flex: 1 0 30%;
+  min-width: 0;
+  padding: 6px var(--space-2);
+}
+
+@media (max-width: 860px) {
+  .seg.lang-seg {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
 
 .seg button {
@@ -1462,9 +1473,11 @@ code {
 
 .anim-grid {
   display: grid;
-  /* 五个选项等大：固定 5 列 1fr，任何一行都同宽；描述单行等长后高度也一致 */
-  grid-template-columns: repeat(5, 1fr);
-  gap: 10px;
+  /* minmax(0,1fr) 必须写：卡片内 nowrap 文字的 min-content 会把 1fr 列撑破，
+     实测 678px 容器被撑到 729px（溢出 51px），右侧卡片被裁掉。 */
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: var(--space-2);
+  align-items: stretch;
 }
 
 @media (max-width: 860px) {
@@ -1477,7 +1490,8 @@ code {
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
-  padding: var(--space-3) 14px;
+  min-width: 0;
+  padding: var(--space-3) var(--space-2);
   border-radius: var(--radius-container);
   border: 1px solid var(--border-1);
   background: var(--hover-bg);
@@ -1502,10 +1516,11 @@ code {
 .anim-hint {
   font-size: var(--type-supporting);
   color: var(--text-3);
-  /* 描述已统一 9 字符等长，锁单行保证所有卡片同高 */
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  /* 列宽只有 ~130px，单行会把描述截成「书页翻卷，平…」。
+     允许折行（最多两行）并让 grid 行等高，卡片仍保持等大。 */
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  min-height: 2.8em;
 }
 
 .slider-row {
@@ -2721,36 +2736,37 @@ code {
   view-transition-name: page;
 }
 
+/* Astryx：页面切换只做 opacity 淡变（175ms fast band），
+ * 不做 translateY/scale —— 位移会让 .app-content 在过渡帧里被裁掉，
+ * 表现为「页面向上弹出、内容显示不完全」。 */
 ::view-transition-group(page) {
-  animation-duration: 260ms;
+  animation-duration: var(--motion-fast);
 }
 
 ::view-transition-old(page) {
-  animation: vt-page-out 150ms var(--ease-standard) both;
+  animation: vt-page-out var(--motion-fast) var(--ease-standard) both;
 }
 
 ::view-transition-new(page) {
-  animation: vt-page-in 240ms var(--ease-standard) both;
+  animation: vt-page-in var(--motion-fast) var(--ease-standard) both;
 }
 
 @keyframes vt-page-out {
   to {
     opacity: 0;
-    transform: translateY(-4px) scale(0.997);
   }
 }
 
 @keyframes vt-page-in {
   from {
     opacity: 0;
-    transform: translateY(10px) scale(0.998);
   }
 }
 
-/* 整屏（root）只做很短的一次淡变，避免和内容区的动画抢戏 */
+/* 整屏（root）同步淡变，避免旧/新快照叠出位移感 */
 ::view-transition-old(root),
 ::view-transition-new(root) {
-  animation-duration: 170ms;
+  animation-duration: var(--motion-fast);
 }
 
 /* 书架 → 详情：卡片封面与详情封面同名，浏览器会把它们当成同一个元素做形变 */

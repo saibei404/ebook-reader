@@ -88,15 +88,18 @@ export function BookDetail() {
       initial={morph ? false : { opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
+      /* 175ms fast band：旧版 410ms + 未声明 transition 的 backdrop 用默认 spring，
+         表现为「点了之后弹层慢半拍才出现」 */
+      transition={{ duration: 0.175, ease: [0.2, 0, 0, 1] as [number, number, number, number] }}
       onClick={() => openBook(null)}
     >
       <motion.div
-        /* 详情弹层：统一不透明表面，入场只做轻微 opacity + 位移。 */
+        /* 详情弹层：统一不透明表面，入场只做 opacity 淡变（不做位移，避免被裁切） */
         className="detail-panel mat-acrylic"
-        initial={morph ? false : { opacity: 0, y: 8 }}
-        animate={{ opacity: 1, y: 0 }}
+        initial={morph ? false : { opacity: 0 }}
+        animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-        transition={{ duration: 0.41, ease: [0.2, 0, 0, 1] as [number, number, number, number] }}
+        transition={{ duration: 0.175, ease: [0.2, 0, 0, 1] as [number, number, number, number] }}
         onClick={(e) => e.stopPropagation()}
       >
         <button className="detail-close" onClick={() => openBook(null)} title={t('detail.close')}>

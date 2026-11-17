@@ -595,3 +595,21 @@ Crashpad 标注 `_version=0.11.1`；单实例锁使第二实例 `app.quit()`，
 
 > 教训：视觉类反馈先确认**运行中的二进制版本**（进程命令行 / Crashpad 版本 / 界面版本标识），
 > 有单实例锁且目录并存多个 exe 时尤其重要，否则会在正确代码上反复补丁。
+
+---
+
+## 十六、v44 交付记录（Astryx 默认封面 + 三处回归修复 · 0.13.0）
+
+用户实拍反馈 4 项，均用**真实 profile 副本 + show:true 窗口**复现后修复：
+
+| 项 | 根因 | 修复 |
+|---|---|---|
+| 默认封面仍是旧视觉 | `cover.ts` 是 iOS Liquid Glass（高饱和渐变/光斑/玻璃文字卡） | 整体重写：7 组带色调中性色、同心圆角 28→12→8→4、4px 栅格、字号 role 阶梯、单一 accent 条，无渐变/玻璃/发光 |
+| 设置页排版错误 | `.anim-grid` 的 `1fr` 被 `nowrap` 描述 min-content 撑破（实测 678→729 溢出 51px）；语言 `flex:1 0 30%` 折成 3+2 且宽度 221/333 不齐 | 改 `repeat(5, minmax(0,1fr))` + `min-width:0`；语言改 5 列等宽 grid（实测均 131px）；描述允许两行、行等高 |
+| 主页面切换向上弹出、显示不完全 | `vt-page-in/out` 带 `translateY(10px) scale(0.998)`，过渡帧裁切内容 | 改纯 opacity 淡变，统一 `--motion-fast` 175ms，去掉所有位移/缩放 |
+| 详情弹层显示/透明/延迟错误 | 残留 `perspective:1400px` + `preserve-3d`（3D 翻卡遗留）生成合成层；面板 410ms + 遮罩默认 spring；`240px 1fr` 被长路径撑破；遮罩 0.32 过淡 | 移除 3D、恒不透明表面 + 1px 描边 + `--shadow-high`、`minmax(0,1fr)`、两层均 175ms tween、遮罩 0.48 |
+
+验证：`tsc` / 161 单测 / 35 状态 `NO_RENDER_ERRORS`；真实数据下量到
+`animGrid 678/678`、`content 720/720`、语言 `[131×5]`、描述无截断；
+详情 `panelBg=rgb(251,252,253)`、`transformStyle=flat`、`perspective=none`、溢出 0；
+书架/设置/详情三张窗口截图人工核对。详见 `RELEASE-v44.md`。

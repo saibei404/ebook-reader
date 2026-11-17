@@ -1,10 +1,32 @@
 import type { Book } from '@/types/book'
 
-const HUES = [12, 28, 44, 68, 96, 150, 178, 196, 216, 248, 276, 296, 322, 344]
-
+/**
+ * 程序化默认封面（无封面书籍 / 随机封面）。
+ *
+ * Astryx 设计语言（参考 meta/astryx 的 Design Conventions）：
+ *  - 表面用带色调的中性色，禁用纯黑纯白；明暗双模文字都过 AA
+ *  - 圆角按 role：page 28 → container 12 → element 8 → inner 4，同心 r_inner = r_outer - gap
+ *  - 排版走 base 14 / ratio 1.2 的 role 阶梯，字重四档 400/500/600/700
+ *  - 一个界面只有一个 primary emphasis：这里只用一条 accent 条，不做满版渐变
+ *  - 不用玻璃拟态、径向光斑、内高光、渐变文字等装饰
+ *
+ * 契约不变：300x400 PNG dataURL、coverSeed → 配色、函数签名与调用处。
+ * 格式标签由书架卡片徽标展示，封面不重复绘制。
+ */
 export function coverHue(seed: number): number {
-  return HUES[Math.abs(Math.trunc(seed)) % HUES.length]
+  return Math.abs(Math.trunc(seed)) % PALETTES.length
 }
+
+/** 7 组语义配色，对应 Astryx 预置主题的中性/强调取向；均为带色调中性，非纯黑白 */
+const PALETTES: { bg: string; fg: string; sub: string; line: string; accent: string; onAccent: string }[] = [
+  { bg: '#e9ecf1', fg: '#1b1d21', sub: '#4c515b', line: '#cfd5df', accent: '#2f6fe4', onAccent: '#ffffff' }, // neutral
+  { bg: '#f2ecd9', fg: '#2c2718', sub: '#635b42', line: '#ded4b8', accent: '#a2761a', onAccent: '#ffffff' }, // butter
+  { bg: '#eae2dd', fg: '#2b211d', sub: '#63504a', line: '#d6c7bf', accent: '#8b4a2f', onAccent: '#ffffff' }, // chocolate
+  { bg: '#e4ece3', fg: '#1c291d', sub: '#4a5c4b', line: '#cbd9c9', accent: '#2f7a4c', onAccent: '#ffffff' }, // matcha
+  { bg: '#e8eaed', fg: '#20242a', sub: '#525963', line: '#d0d4da', accent: '#4a5b70', onAccent: '#ffffff' }, // stone
+  { bg: '#24262b', fg: '#e9eaed', sub: '#a7abb4', line: '#3a3d44', accent: '#8b7bd8', onAccent: '#14161a' }, // gothic
+  { bg: '#e2edf2', fg: '#17242c', sub: '#4a626f', line: '#c6dbe5', accent: '#1f7fa0', onAccent: '#ffffff' }, // y2k
+]
 
 function roundRectPath(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number): void {
   ctx.beginPath()
@@ -16,14 +38,13 @@ function roundRectPath(ctx: CanvasRenderingContext2D, x: number, y: number, w: n
   ctx.closePath()
 }
 
-/** 逐字折行；超过 maxLines 时末行收省略号。先排版后绘制，玻璃卡才能自适应高度 */
+/** 逐字折行；超过 maxLines 时末行收省略号 */
 function layoutLines(ctx: CanvasRenderingContext2D, text: string, maxWidth: number, maxLines: number): string[] {
   const all: string[] = []
   let line = ''
   for (const ch of Array.from(text)) {
     const test = line + ch
     if (ctx.measureText(test).width > maxWidth && line) {
-      // 有空格时优先在词边界断，避免把「日常」这类词拆到两行
       const bp = line.lastIndexOf(' ')
       if (bp > 0 && line.length - bp < 8) {
         all.push(line.slice(0, bp).trim())
@@ -43,8 +64,6 @@ function layoutLines(ctx: CanvasRenderingContext2D, text: string, maxWidth: numb
     while (last && ctx.measureText(last + '…').width > maxWidth) last = last.slice(0, -1)
     lines[lines.length - 1] = last + '…'
   } else if (lines.length >= 2 && Array.from(lines[lines.length - 1]).length <= 2) {
-    // 逐字折行容易把最后一个字单独挤成一行（中文标题尤其明显）：
-    // 从前一行末尾回填 1~2 个字，让末行至少有三个字，视觉上才不散
     const prev = Array.from(lines[lines.length - 2])
     let last = lines[lines.length - 1]
     while (Array.from(last).length < 3 && prev.length > 2) {
@@ -59,16 +78,6 @@ function layoutLines(ctx: CanvasRenderingContext2D, text: string, maxWidth: numb
   return lines
 }
 
-/**
- * 程序化生成书籍封面（无封面书籍的默认外观，也用于「随机封面」）。
- *
- * 视觉：低饱和柔和渐变 + 径向光斑 + 半透明玻璃文字卡，贴近 iOS 的 Liquid Glass
- * —— 大圆角、细边框、内高光、克制的排版。全部用 canvas 渐变绘制，不用 filter/blur，
- * 生成开销与旧版相当（hydrate 时会对每本无封面书跑一次）。
- *
- * 契约不变：300x400 PNG dataURL、coverSeed → 色相、函数签名与所有调用处。
- * 格式标签由书架卡片的徽标展示，封面不重复绘制。
- */
 export function generateCoverDataUrl(book: {
   title: string
   author: string
@@ -83,114 +92,82 @@ export function generateCoverDataUrl(book: {
   const ctx = canvas.getContext('2d')
   if (!ctx) return ''
 
-  const hue = coverHue(book.coverSeed)
-  const hue2 = (hue + 26) % 360
-  const hue3 = (hue + 54) % 360
+  const p = PALETTES[coverHue(book.coverSeed)]
 
-  // 先量文字，玻璃卡高度随书名行数自适应
-  ctx.font = '600 29px "PingFang SC", "Microsoft YaHei", system-ui, sans-serif'
-  const titleLines = layoutLines(ctx, book.title || '未命名', 204, 3)
-  const titleLH = 37
-  const titleH = Math.max(titleLH, titleLines.length * titleLH)
-  const authorFont = '400 16px "PingFang SC", "Microsoft YaHei", system-ui, sans-serif'
-  const authorText = book.author || '佚名'
-
-  const gx = 24
-  const gy = 108
-  const gw = w - 48
-  const padX = 22
-  const titleTop = 58
-  const ruleGap = 16
-  const authorGap = 30
-  const gh = titleTop + titleH + ruleGap + authorGap + 30
+  // 4px 栅格：外边距 24、内容区 252、gap 8/16/24
+  const margin = 24
+  const contentW = w - margin * 2
+  const innerW = contentW - 16 * 2
 
   ctx.save()
-  // 关键：clip 到圆角内。旧版的 fillRect 光泽会画到四角外面，把圆角填成直角
-  roundRectPath(ctx, 0, 0, w, h, 26)
+  // page role：28px，同心父级
+  roundRectPath(ctx, 0, 0, w, h, 28)
   ctx.clip()
 
-  // 1) 柔和主渐变（比旧版 58%/22% 更明快、低饱和）
-  const bg = ctx.createLinearGradient(0, 0, w * 0.8, h)
-  bg.addColorStop(0, `hsl(${hue}, 48%, 66%)`)
-  bg.addColorStop(0.52, `hsl(${hue2}, 44%, 50%)`)
-  bg.addColorStop(1, `hsl(${hue3}, 42%, 34%)`)
-  ctx.fillStyle = bg
+  // 1) 页面级底色（不透明、带色调中性）
+  ctx.fillStyle = p.bg
   ctx.fillRect(0, 0, w, h)
 
-  // 2) 玻璃光斑：径向渐变模拟体积光，不引入合成层
-  const blob = (cx: number, cy: number, r: number, alpha: number) => {
-    const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r)
-    g.addColorStop(0, `rgba(255,255,255,${alpha})`)
-    g.addColorStop(1, 'rgba(255,255,255,0)')
-    ctx.fillStyle = g
-    ctx.fillRect(cx - r, cy - r, r * 2, r * 2)
-  }
-  blob(w * 0.88, h * 0.08, 190, 0.30)
-  blob(w * 0.08, h * 0.94, 155, 0.16)
-  blob(w * 0.52, h * 0.46, 120, 0.10)
-
-  // 3) 顶部弧形高光
-  const sheen = ctx.createLinearGradient(0, 0, 0, h * 0.56)
-  sheen.addColorStop(0, 'rgba(255,255,255,0.26)')
-  sheen.addColorStop(1, 'rgba(255,255,255,0)')
-  ctx.fillStyle = sheen
-  ctx.fillRect(0, 0, w, h * 0.56)
-
-  // 4) 书脊：保留「书」的识别，改成细渐变 + 一道高光线
-  const spine = ctx.createLinearGradient(0, 0, 14, 0)
-  spine.addColorStop(0, 'rgba(12,14,22,0.34)')
-  spine.addColorStop(1, 'rgba(12,14,22,0.04)')
-  ctx.fillStyle = spine
-  ctx.fillRect(0, 0, 14, h)
-  ctx.fillStyle = 'rgba(255,255,255,0.34)'
-  ctx.fillRect(14, 0, 1.5, h)
-
-  // 5) 右上角玻璃圆点（替代旧版两个突兀的白色描边圆环）
-  ctx.beginPath()
-  ctx.arc(w - 44, 58, 13, 0, Math.PI * 2)
-  ctx.fillStyle = 'rgba(255,255,255,0.18)'
+  // 2) 顶部语义条：唯一的 accent emphasis，用 8px 高度 + 圆角，不做满版渐变
+  roundRectPath(ctx, margin, margin, 40, 8, 4)
+  ctx.fillStyle = p.accent
   ctx.fill()
-  ctx.strokeStyle = 'rgba(255,255,255,0.38)'
+
+  // 3) 书名容器：container role 12px，内部间距 16px → 同心
+  ctx.font = '600 27px "PingFang SC", "Microsoft YaHei", system-ui, sans-serif'
+  const titleLines = layoutLines(ctx, book.title || '未命名', innerW, 3)
+  const titleLH = 36
+  const titleH = Math.max(titleLH, titleLines.length * titleLH)
+
+  const cardY = 120
+  const cardH = titleH + 16 * 2 + 20 + 16
+  roundRectPath(ctx, margin, cardY, contentW, cardH, 12)
+  ctx.fillStyle = p.bg
+  ctx.fill()
+  ctx.strokeStyle = p.line
   ctx.lineWidth = 1
   ctx.stroke()
 
-  // 6) Liquid Glass 文字卡：半透明底 + 细边框 + 顶部内高光
-  roundRectPath(ctx, gx, gy, gw, gh, 24)
-  ctx.fillStyle = 'rgba(18,20,30,0.22)'
-  ctx.fill()
-  ctx.strokeStyle = 'rgba(255,255,255,0.38)'
-  ctx.lineWidth = 1.2
-  ctx.stroke()
-  ctx.save()
-  roundRectPath(ctx, gx, gy, gw, gh, 24)
-  ctx.clip()
-  const glassSheen = ctx.createLinearGradient(0, gy, 0, gy + gh * 0.55)
-  glassSheen.addColorStop(0, 'rgba(255,255,255,0.20)')
-  glassSheen.addColorStop(1, 'rgba(255,255,255,0)')
-  ctx.fillStyle = glassSheen
-  ctx.fillRect(gx, gy, gw, gh * 0.55)
-  ctx.restore()
-
-  // 7) 书名 / 分隔线 / 作者
+  // 4) 文字：role 阶梯 + 四档字重
   ctx.textBaseline = 'alphabetic'
-  ctx.fillStyle = '#ffffff'
-  ctx.font = '600 29px "PingFang SC", "Microsoft YaHei", system-ui, sans-serif'
-  const tx = gx + padX
-  const firstY = gy + titleTop
-  titleLines.forEach((ln, i) => ctx.fillText(ln, tx, firstY + i * titleLH))
-  const ruleY = firstY - 8 + titleH + ruleGap
-  ctx.strokeStyle = 'rgba(255,255,255,0.42)'
-  ctx.lineWidth = 1
+  const tx = margin + 16
+  ctx.fillStyle = p.fg
+  ctx.font = '600 27px "PingFang SC", "Microsoft YaHei", system-ui, sans-serif'
+  titleLines.forEach((ln, i) => ctx.fillText(ln, tx, cardY + 16 + 28 + i * titleLH))
+
+  // 分隔线：1px 语义描边
+  const ruleY = cardY + 16 + 28 + (titleLines.length - 1) * titleLH + 20
+  ctx.strokeStyle = p.line
   ctx.beginPath()
   ctx.moveTo(tx, ruleY)
-  ctx.lineTo(gx + gw - padX, ruleY)
+  ctx.lineTo(margin + contentW - 16, ruleY)
   ctx.stroke()
-  ctx.fillStyle = 'rgba(255,255,255,0.82)'
-  ctx.font = authorFont
-  let author = authorText
-  while (author.length > 1 && ctx.measureText(author).width > gw - padX * 2) author = author.slice(0, -1)
-  if (author !== authorText) author = author.slice(0, -1) + '…'
-  ctx.fillText(author, tx, ruleY + authorGap)
+
+  // 作者（supporting role、400 字重、次级文字色）
+  ctx.fillStyle = p.sub
+  ctx.font = '400 15px "PingFang SC", "Microsoft YaHei", system-ui, sans-serif'
+  let author = book.author || '佚名'
+  while (author.length > 1 && ctx.measureText(author).width > innerW) author = author.slice(0, -1)
+  if (author !== (book.author || '佚名')) author = author.slice(0, -1) + '…'
+  ctx.fillText(author, tx, cardY + cardH - 20)
+
+  // 5) 底部标签：element role 8px + accent 实心。宽度按实测文字量取，
+  //    避免文字被裁（旧版固定 88px 装不下 "MOYU BOOKS"）。
+  const chipY = h - margin - 30
+  ctx.font = '500 13px "PingFang SC", "Microsoft YaHei", system-ui, sans-serif'
+  const label = 'MOYU BOOKS'
+  const chipW = Math.ceil(ctx.measureText(label).width) + 24
+  roundRectPath(ctx, margin, chipY, chipW, 28, 8)
+  ctx.fillStyle = p.accent
+  ctx.fill()
+  ctx.fillStyle = p.onAccent
+  ctx.fillText(label, margin + 12, chipY + 19)
+
+  // 6) 右下角页码式几何锚点（inner role 4px），纯装饰但不带渐变/发光
+  roundRectPath(ctx, w - margin - 20, chipY + 6, 20, 16, 4)
+  ctx.strokeStyle = p.line
+  ctx.lineWidth = 1
+  ctx.stroke()
 
   ctx.restore()
   return canvas.toDataURL('image/png')

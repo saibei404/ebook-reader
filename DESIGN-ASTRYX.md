@@ -105,7 +105,23 @@ r_inner = r_outer - gap    →    --radius-nested: calc(--radius-container - --s
 现由主进程随 URL 传 `&theme=` 初始化，EPUB 独立 iframe 也补 `color-scheme` 与滚动条配色。
 详见 `RELEASE-v43.md` 第八节。
 
-## 五、已知遗留（下一轮）
+## 五（补）、v44（0.13.0）：默认封面也切到 Astryx
+
+此前封面生成仍是 iOS Liquid Glass（高饱和渐变 + 径向光斑 + 玻璃文字卡 + 内高光），
+与已重构的界面语言割裂。`src/lib/cover.ts` 整体重写，契约不变（300×400 dataURL、coverSeed → 配色）：
+
+- 7 组带色调中性配色（深色组自动换浅前景，均过 AA），禁纯黑白、禁满版渐变
+- 同心圆角：28（page）→ 12（container）→ 8（element）→ 4（inner）
+- 4px 栅格、字号 role 阶梯（27/15/13）、字重 600/400/500
+- 单一 primary emphasis：顶部 40×8 accent 条 + 底部 accent 标签；不用玻璃/发光/装饰渐变
+
+同轮修掉 3 处回归：设置页 `1fr` 被 `nowrap` 文字撑破（改 `minmax(0,1fr)`）、
+页面切换 VT 带 `translateY/scale` 导致上弹裁切（改纯 175ms opacity）、
+详情弹层残留 `perspective/preserve-3d` 造成透明错位与 410ms 延迟
+（移除 3D + 恒不透明表面 + 175ms tween + 遮罩 0.32→0.48）。
+详见 `RELEASE-v44.md`。
+
+## 六、已知遗留（下一轮）
 
 - 控件高度仍有少量硬编码（20/22/26/30px 等图标与微调尺寸），`--control-*` 已定义，需按元素逐个迁移，避免误伤图标尺寸。
 - `z-index` 仍有魔法数字，`--z-*` 语义层级已定义，待迁移。

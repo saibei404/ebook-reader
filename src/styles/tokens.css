@@ -189,16 +189,20 @@
   --shadow-med: 0 4px 12px rgba(20, 24, 32, 0.1);
   --shadow-high: 0 12px 28px rgba(20, 24, 32, 0.14);
   --detail-scrim: rgba(28, 32, 40, 0.32);
-  /* 浅色：页面级底色半透明让壁纸透出；适配罩用纯白提亮（图像 tint） */
+  /* 浅色：页面级底色半透明让壁纸透出；提亮罩必须很轻，
+     否则「白罩 + 白表面」会把彩色壁纸洗成粉白，表现为壁纸显示错误。 */
   --dock-bg: rgba(233, 237, 244, var(--dock-opacity, 0.55));
   --content-surface: rgba(251, 252, 253, var(--content-opacity, 0.66));
-  --wallpaper-scrim: rgba(255, 255, 255, 0.3);
+  --wallpaper-scrim: rgba(255, 255, 255, 0.15);
 }
 
-/* 浅色安全底：暗壁纸 / 亮度未知 / 无壁纸时提高页面级底色的不透明度，
- * 避免半透明白叠在暗壁纸上混成中灰、黑字对比度崩掉（历史实拍问题）。
- * 但不能设成 100% 不透明 —— 那会让壁纸彻底消失，表现为「壁纸显示不出来」。
- * 84% 白 + 16% 暗壁纸时底色仍约 rgb(212,218,229)，与 #1b1d21 文字对比 >9:1，远超 AA。
+/* 浅色安全底：暗壁纸 / 亮度未知 / 无壁纸时给页面级底色一个不透明度下限，
+ * 避免用户把滑块拉到极低时半透明白叠在暗壁纸上混成中灰、黑字对比度崩掉。
+ *
+ * 关键：绝不能写死成 0.84/0.86 —— 那会把彩色壁纸一律洗成粉白，
+ * 而且 dataBgLum 的「暗」判定用的是平均亮度，鲜艳的蓝紫渐变也会被误判为暗。
+ * 用 max(下限, 用户设定值)：默认 0.66 白 + 最坏纯黑壁纸 ≈ rgb(166,167,168)，
+ * 与 #1b1d21 深字对比仍 >6:1，过 AA；同时壁纸颜色能真实透出。
  * 组件表面（卡片/按钮/弹层）本来就恒不透明，这里只兜底 Dock 与内容区。 */
 [data-theme='light'][data-no-wallpaper='1'],
 [data-theme='light'][data-bg-lum='dark'],
@@ -206,8 +210,8 @@
 [data-theme='light'][data-native-acrylic='1'] {
   --bg-fallback: var(--color-background-body);
   --bg-base: var(--color-background-body);
-  --dock-bg: rgba(233, 237, 244, 0.86);
-  --content-surface: rgba(251, 252, 253, 0.84);
+  --dock-bg: rgba(233, 237, 244, max(0.55, var(--dock-opacity, 0.55)));
+  --content-surface: rgba(251, 252, 253, max(0.55, var(--content-opacity, 0.66)));
   --surface-card: var(--color-background-surface);
   --chip-surface: var(--color-neutral);
   --surface-inset: var(--color-neutral);

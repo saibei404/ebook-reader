@@ -217,10 +217,17 @@ let readerCurrentBookId = ''
 /** 连续崩溃次数：第一次自动重开，第二次才认为"这个环境/这本书打不开" */
 let readerCrashStreak = 0
 let readerSurviveTimer: NodeJS.Timeout | null = null
+/** 主界面当前主题的权威值：随 save-settings 同步更新，避免读盘时序窗口 */
+let currentAppTheme: 'dark' | 'light' | null = null
 
 function openReaderWin(bookId: string, jump?: string): void {
   readerCurrentBookId = bookId
-  const search = `?bookId=${encodeURIComponent(bookId)}${jump ? `&jump=${encodeURIComponent(jump)}` : ''}`
+  // 把主界面当前主题随 URL 传给阅读窗口：BroadcastChannel 只能收到「之后的」广播，
+  // 收不到打开阅读器之前那次切换。没有这个初值，「跟随」模式在深色主界面下
+  // 仍按浅色启动，滚动条/原生控件全是浅色。
+  const appTheme = currentAppTheme ?? readSettings().theme ?? 'dark'
+  const search = `?bookId=${encodeURIComponent(bookId)}&theme=${appTheme}` +
+    `${jump ? `&jump=${encodeURIComponent(jump)}` : ''}`
   const existing = aliveReader()
   if (existing) {
     // 已有阅读窗口：切换书籍并聚焦（不重复建窗）
@@ -506,6 +513,7 @@ function createWindow(opts?: { forceOpaque?: boolean; initialUrl?: string }): Br
 function registerIPC(): void {
   ipcMain.handle('moyu:get-settings', () => readSettings())
   ipcMain.handle('moyu:save-settings', (_e, s: AppSettings) => {
+    if (s.theme === 'dark' || s.theme === 'light') currentAppTheme = s.theme
     writeSettings({ ...readSettings(), ...s })
   })
   ipcMain.handle('moyu:pick-wallpaper', async () => {
@@ -4479,6 +4487,9 @@ if (!app.requestSingleInstanceLock() && !isShot) {
     // 在个别 Windows 环境里这套菜单会以一条 20~26px 的横条画在客户区顶部，
     // 表现为「关闭/最小化/最大化那一排不在窗口最顶部」——直接摘掉，顺带省掉用不到的快捷键。
     Menu.setApplicationMenu(null)
+    // 冷启动后立刻打开阅读器时也要有正确主题初值
+    const bootTheme = readSettings().theme
+    if (bootTheme === 'dark' || bootTheme === 'light') currentAppTheme = bootTheme
     registerBookProtocol()
     registerIPC()
     if (isShot) {

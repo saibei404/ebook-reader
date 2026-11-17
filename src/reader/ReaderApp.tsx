@@ -100,7 +100,14 @@ export function ReaderApp() {
   const [hint, setHint] = useState('')
   /** 当前阅读位置（加书签用；由 onLocate 持续更新） */
   const currentLoc = useRef<Locator | null>(null)
-  const [systemDark, setSystemDark] = useState(false)
+  // 初始主题取主进程随 URL 传入的值；不传时读 IndexedDB 里的设置兜底。
+  // 绝不能恒为 false —— BroadcastChannel 只广播后续变化，主界面在打开阅读器
+  // 之前就切成深色的话，阅读窗口永远收不到，会一直按浅色渲染（滚动条也是浅色）。
+  const [systemDark, setSystemDark] = useState(() => {
+    const fromUrl = new URLSearchParams(location.search).get('theme')
+    if (fromUrl === 'dark' || fromUrl === 'light') return fromUrl === 'dark'
+    return false
+  })
   const [pagesInfo, setPagesInfo] = useState<{ pages: number } | null>(null)
   /** 高亮 / 笔记 */
   const [annotations, setAnnotations] = useState<Annotation[]>([])

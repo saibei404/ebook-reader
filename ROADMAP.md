@@ -564,3 +564,18 @@ v42 交接里把 `anchoredScrollTop()` 写成「加固」，但自检固定只�
 
 回归：`tsc` / 161 单测 / 35 状态 `NO_RENDER_ERRORS`；深浅壁纸窗口截图均可见纹理；
 夜间主题探针确认 `inlineColorScheme=dark` 且 thumb 规则跟随 `--r-fg`。详见 `RELEASE-v43.md` 第七节。
+
+### 0.12.2 复测修复（用户反馈「两个问题依旧存在」）
+
+0.12.1 的验证失真：`show:false` 窗口 `capturePage` 抓旧合成帧，且自检内置壁纸走 `dataBgLum=light` 分支，
+与用户真实路径不一致。改用 `show:true` 真实窗口 + 用户导入的鲜艳壁纸复现后定位真因：
+
+1. **浅色壁纸被洗白**：彩色壁纸被平均亮度误判为 `dark`，触发安全底写死 84% 白，
+   叠加白罩后只剩粉白。改为 `max(0.55, var(--*-opacity))` + 白罩 0.15，壁纸颜色真实且黑字 >6:1 过 AA。
+2. **深色阅读界面滚动条浅色**：`ReaderApp.systemDark` 初值恒 `false`，`subscribeTheme` 只收后续广播，
+   主界面在开阅读器**之前**切的深色收不到 →「跟随」按浅色启动 → `colorScheme=light`。
+   修：主进程 `openReaderWin` 随 URL 传 `&theme=`（新增 `currentAppTheme` 权威值），
+   `ReaderApp` 用 URL 初始化 `systemDark`；EPUB 独立 iframe 补 `color-scheme` 与滚动条配色。
+
+证据：`MAIN_PROBE` / `READER_PROBE` / `INIT_THEME_PROBE` 三个 show:true 探针 + `MOYU_TEST_THEME=1` 得 `THEME_OK`；
+编译产物核对；`tsc` / 161 单测 / 35 状态 `NO_RENDER_ERRORS`。详见 `RELEASE-v43.md` 第八节。

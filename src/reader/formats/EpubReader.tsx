@@ -251,6 +251,23 @@ export function EpubReader({
       const html = doc?.documentElement
       if (!doc || !body || !html) return
       const s = styleRef.current
+      // iframe 是独立文档，不继承父窗口的 color-scheme；夜间主题下
+      // 不显式设置的话，iframe 内滚动条/表单控件仍是浅色（用户实拍反馈）。
+      html.style.colorScheme = hexLuminance(s.bg) < 0.5 ? 'dark' : 'light'
+      // 显式滚动条配色：只靠 color-scheme 时，作者 CSS 或 WebKit 默认样式
+      // 仍可能把 iframe 内滚动条画成浅色。用当前前景色派生，自动跟随主题。
+      let sb = doc.querySelector<HTMLStyleElement>('style[data-moyu-scrollbar]')
+      if (!sb) {
+        sb = doc.createElement('style')
+        sb.setAttribute('data-moyu-scrollbar', '1')
+        ;(doc.head ?? doc.documentElement).appendChild(sb)
+      }
+      // 每次重写：主题切换要同步换滑块颜色，不能只在首次挂载时写死
+      sb.textContent =
+        `::-webkit-scrollbar{width:10px;height:10px}` +
+        `::-webkit-scrollbar-track{background:transparent}` +
+        `::-webkit-scrollbar-thumb{background:color-mix(in srgb, ${s.fg} 22%, transparent);border-radius:9999px}` +
+        `::-webkit-scrollbar-thumb:hover{background:color-mix(in srgb, ${s.fg} 38%, transparent)}`
       html.style.background = s.bg
       body.style.background = s.bg
       body.style.color = s.fg

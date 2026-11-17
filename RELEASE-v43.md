@@ -75,3 +75,54 @@ Astryx 是 Meta 2026 年开源的 React 19 + StyleX 设计系统（Beta，内部
 - 窗口级截图人工核对：`27-wallpaper-texture`（深色）与 `28-wallpaper-texture-light`（浅色）壁纸纹理均可见，文字清晰、无异常偏色
 - 夜间主题探针 `SCROLLBAR_PROBE`：`clickedNight=true`、`inlineColorScheme=dark`、`computedColorScheme=dark`、`--r-fg=#e8e6e3`、thumb 规则为 `color-mix(in srgb, var(--r-fg) 22%, transparent)`
 - 组件表面（卡片/按钮/弹层）仍恒不透明，Astryx token 体系与克制观感未回退
+
+---
+
+## 八、0.12.2 回归修复（用户复测反馈「两个问题依旧存在」）
+
+上一轮 0.12.1 的验证用了 `show:false` 窗口 + 自检内置壁纸，`capturePage` 抓到的可能是旧合成帧，
+且测试壁纸走的是 `dataBgLum=light` 分支——**与用户真实场景不是同一条路径**。
+本轮改用 `show:true` 真实可见窗口 + 用户导入的鲜艳壁纸复现，才定位到真正根因。
+
+### 1) 浅色壁纸仍被洗白
+
+真实探针 `MAIN_PROBE` 揭示：`dataBgLum: "dark"`、`contentBg: rgba(251,252,253,0.84)`。
+原因是壁纸平均亮度判定把**鲜艳的蓝紫玫红渐变**也判成「暗」，触发浅色安全底规则，
+内容区被强制盖成 84% 白；叠加白罩后彩色壁纸只剩一层粉白。
+上一轮改的 0.66 半透明只在 `dataBgLum=light` 时生效，用户那条路径根本没走到。
+
+修复：
+- 安全底从写死 `0.84/0.86` 改为 `max(0.55, var(--*-opacity))`——尊重用户滑块，
+  只兜住极低透明度。默认 0.66 白 + 最坏纯黑壁纸 ≈ rgb(166,167,168)，与 `#1b1d21` 对比 >6:1，过 AA。
+- 白罩 `rgba(255,255,255,0.3)` → `0.15`，去掉「白罩 + 白表面」双重漂白。
+- 真实窗口截图确认：蓝紫玫红渐变与白色圆形光斑清晰、颜色饱和，文字可读。
+
+### 2) 深色阅读界面右侧滚动条仍为浅色
+
+上一轮只加了 `colorScheme` 动态设置和 `::-webkit-scrollbar` 样式，但 **`dark` 本身算错了**：
+`ReaderApp` 的 `systemDark` 初值恒为 `false`，`subscribeTheme` 只监听**之后的** BroadcastChannel 广播；
+主界面在打开阅读器之前就切成深色，那次广播阅读窗口收不到，于是「跟随」模式一直按浅色启动，
+`colorScheme` 被设成 `light`，滚动条自然浅色。
+
+修复（三处）：
+- `electron/main.ts`：`openReaderWin` 把当前主题随 URL 传入 `&theme=<dark|light>`；
+  新增模块级 `currentAppTheme`，由 `moyu:save-settings` 同步更新、`whenReady` 从磁盘初始化，
+  避免读盘时序窗口。
+- `src/reader/ReaderApp.tsx`：`systemDark` 用 URL 参数初始化，不再恒为 false。
+- `src/reader/formats/EpubReader.tsx`：EPUB 章节是独立 iframe 文档，不继承父窗口 `color-scheme`；
+  补 `html.style.colorScheme` 与 `style[data-moyu-scrollbar]` 显式滚动条配色（每次主题切换重写，跟随 `s.fg`）。
+
+### 验证（本轮全部用真实可见窗口 / 真实主进程）
+
+| 手段 | 结果 |
+|---|---|
+| `MAIN_PROBE`（show:true，浅色 + 导入彩色壁纸） | `contentBg=rgba(251,252,253,0.66)`、白罩 0.15，截图壁纸颜色真实 |
+| `READER_PROBE`（show:true，`theme=dark`） | `computedColorScheme=dark`、`readerBg=rgb(17,17,19)`、`--r-fg=#e8e6e3` |
+| `INIT_THEME_PROBE`（启动瞬间初值） | `urlTheme=dark` → `inlineColorScheme=dark`、`rBg=#111113` |
+| `MOYU_TEST_THEME=1` 跨窗口主题自检 | `THEME_OK`（夜间 `rgb(17,17,19)` / 纸白 `rgb(250,249,246)`） |
+| 编译产物核对 | `&theme=${appTheme}`、`currentAppTheme=s.theme`、iframe `colorScheme` / `data-moyu-scrollbar` 均已落地 |
+| 全量回归 | `tsc` 干净 / 单测 161/161 / 35 状态 `NO_RENDER_ERRORS` |
+
+> 教训：`capturePage` 在 `show:false` 窗口会抓到旧合成帧或桌面其它窗口，
+> **不能**用来宣告视觉修复完成；必须 `show:true` + 读取真实 computed style 双证。
+> 另：自检内置的测试壁纸可能走不到用户实际触发的 `dataBgLum` 分支，验证要覆盖真实数据路径。

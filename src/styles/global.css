@@ -834,14 +834,12 @@ code {
 
 .book-card {
   cursor: pointer;
-  transform-style: preserve-3d;
 }
 
 .book-card-inner {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  transform-style: preserve-3d;
 }
 
 .book-cover-wrap {

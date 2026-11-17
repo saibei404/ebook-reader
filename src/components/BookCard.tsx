@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { motion, useMotionValue, useSpring, useTransform } from 'motion/react'
+import { motion } from 'motion/react'
 import type { Book } from '@/types/book'
 import { FORMAT_LABEL } from '@/types/book'
 import { useStore } from '@/store/useStore'
@@ -87,31 +87,8 @@ export function BookCard({
   }, [dragging, onDragStartBook, onDropOnBook, book.id, book.title])
   const coverUrl = (book.coverId ? covers[book.coverId] : null) ?? procCovers[book.id] ?? ''
 
-  const rx = useMotionValue(0)
-  const ry = useMotionValue(0)
-  const springCfg = { stiffness: 300, damping: 26 }
-  const rxs = useSpring(rx, springCfg)
-  const rys = useSpring(ry, springCfg)
-  const glareX = useTransform(rys, [-8, 8], ['30%', '70%'])
-  const glareOpacity = useTransform(rys, [-8, 0, 8], [0.16, 0.05, 0.16])
-  const lastMove = useRef(0)
-
-  const onMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    const now = performance.now()
-    if (now - lastMove.current < 24) return
-    lastMove.current = now
-    const rect = e.currentTarget.getBoundingClientRect()
-    const px = (e.clientX - rect.left) / rect.width - 0.5
-    const py = (e.clientY - rect.top) / rect.height - 0.5
-    /* Astryx：不做 3D 倾斜跟随（装饰性动效） */
-    ry.set(0)
-    rx.set(0)
-  }
-
-  const onLeave = () => {
-    rx.set(0)
-    ry.set(0)
-  }
+  /* Astryx：3D 倾斜跟随与封面高光均为装饰性动效，已整体移除。
+     之前保留 motion value 但恒置 0，仍会给每张卡创建 3D 合成层（16 张 = 16 层）。 */
 
   // 以 locator 为准（真实阅读位置），老数据回退 progress
   const progress = book.locator?.percent ?? book.progress
@@ -137,12 +114,7 @@ export function BookCard({
       /* 必须始终可拖：否则第一本书永远发起不了 dragstart（dragging 只能由拖动本身产生） */
       draggable={!!onDragStartBook}
     >
-      <motion.div
-        className="book-card-inner"
-        style={{ rotateX: rxs, rotateY: rys, transformPerspective: 900 }}
-        onMouseMove={onMove}
-        onMouseLeave={onLeave}
-      >
+      <div className="book-card-inner">
         <div className="book-cover-wrap">
           {coverUrl ? (
             <motion.img layoutId={`cover-${book.id}`} className="book-cover" src={coverUrl} alt={book.title} draggable={false} />
@@ -150,7 +122,6 @@ export function BookCard({
             <div className="book-cover book-cover-ph" />
           )}
           <span className="spine" aria-hidden />
-          <motion.div className="cover-glare" style={{ left: glareX, opacity: glareOpacity }} />
           <span className="format-badge">{FORMAT_LABEL[book.format]}</span>
           {progress > 0.0005 && (
             /* 圆环进度（iPhone 电量环风格）：置于右上角，与左下角格式徽标错开，杜绝重叠 */
@@ -196,7 +167,7 @@ export function BookCard({
           <div className="book-title">{book.title}</div>
           <div className="book-author">{book.author}</div>
         </div>
-      </motion.div>
+      </div>
     </motion.div>
   )
 }

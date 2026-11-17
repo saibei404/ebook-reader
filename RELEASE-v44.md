@@ -55,14 +55,27 @@
 
 真实点击验证：`panelBg=rgb(251,252,253)`、`border=1px`、`transformStyle=flat`、`perspective=none`、水平溢出 0。
 
-## 三、验证
+## 三（补）、书卡 3D 合成层清理
+
+核对打包产物时发现 `transform-style: preserve-3d`、`transformPerspective: 900` 与整套
+`useMotionValue/useSpring/useTransform` 链路仍挂在书卡上——Astryx 重构时只把 3D 倾斜跟随
+停用了（`onMove` 恒 `set(0)`），没删绑定。每张卡仍会创建 3D 合成层（16 张 = 16 层），
+纯开销且无任何视觉效果。已移除：
+`BookCard.tsx` 的 hooks / `onMove` / `onLeave` / `cover-glare` 节点（CSS 早已 `display:none`），
+`book-card-inner` 改普通 `div`；`global.css` 去掉两条 `preserve-3d`。
+
+> 打包版冒烟需同时清 `ELECTRON_RUN_AS_NODE` 与 `NODE_OPTIONS`：
+> 宿主注入的 `NODE_OPTIONS` 在 packaged app 里会触发 `Most NODE_OPTIONs are not supported`，
+> 表现为进程卡住无输出。
+
+## 四、验证
 
 - `tsc --noEmit` 干净；**单测 161/161**；构建通过
 - **真实 profile 副本**（16 本书、爱弥斯壁纸、全局透明度 57%）+ `show:true` 可见窗口验证：
   设置页排版、书架新封面、详情弹层三张截图人工核对
 - 全量 **35/35 状态 `NO_RENDER_ERRORS`**（开发版 + 打包版各一次）
 
-## 四、已知遗留
+## 五、已知遗留
 
 - 程序化封面在导入时生成并缓存；已有书若想换成新封面，可在详情弹层点「随机封面」重新生成。
 - `src/types/book.ts` 的 `ANIM_MODES.hint` 仍保留旧文案「弹性跟手」（设置页动效卡片用），

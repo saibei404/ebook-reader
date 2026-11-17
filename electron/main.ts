@@ -4643,11 +4643,31 @@ if (!app.requestSingleInstanceLock() && !isShot) {
     })
   })
 
-  app.on('second-instance', () => {
+  app.on('second-instance', (_e, argv) => {
     const w = aliveWin()
     if (w) {
       w.show()
       w.focus()
+    }
+    // 防呆：用户双击了另一个版本的 exe，但单实例锁只会把当前这个旧窗口弹到前台，
+    // 视觉上像"新版本启动了"，实际代码还是旧版。明确提示，避免反复误判为 bug 未修。
+    try {
+      const incoming = argv.find((a) => /\.exe$/i.test(a) && /墨鱼阅读器/.test(a)) ?? argv[1] ?? ''
+      const m = /(\d+\.\d+\.\d+)(?=-|\.exe|$)/.exec(incoming)
+      const running = app.getVersion()
+      if (m && m[1] !== running) {
+        const opts: Electron.MessageBoxOptions = {
+          type: 'warning',
+          title: '检测到另一个版本',
+          message: `你刚启动的是 v${m[1]}，但当前运行的仍是 v${running}。`,
+          detail: '新版本被单实例锁接管了，界面不会变。请完全退出本程序（托盘 → 退出），再双击新版本的可执行文件。',
+          buttons: ['知道了'],
+          noLink: true,
+        }
+        void (w ? dialog.showMessageBox(w, opts) : dialog.showMessageBox(opts))
+      }
+    } catch {
+      /* 版本探测失败不影响正常聚焦 */
     }
   })
 

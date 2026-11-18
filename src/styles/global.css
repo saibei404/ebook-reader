@@ -2712,6 +2712,49 @@ code {
   margin-left: 0;
 }
 
+/* ========== 壁纸模式：文字 / 选项承载面 ==========
+ * Astryx：组件表面恒不透明，页面级底色只做色调归一。
+ * 可读性不再靠「把整片内容区糊成实色」——那正是蒙版过重的来源；改由每个
+ * 承载文字/选项的元素自带一块近不透明表面，深浅双模由 --surface-textplate 切换。
+ * 只在有壁纸时生效，无壁纸界面保持原样。 */
+[data-no-wallpaper='0'] :is(
+  .library-count,
+  .library-hint,
+  .topbar-count,
+  .search-box,
+  .sort-select,
+  .lib-card-size,
+  .chip:not(.active),
+  .shelf-chip:not(.active),
+  .shelf-add
+) {
+  background: var(--surface-textplate);
+  border-color: var(--color-border);
+}
+
+[data-no-wallpaper='0'] :is(.library-count, .library-hint, .topbar-count) {
+  padding: 2px 8px;
+  border-radius: var(--radius-element);
+  border: 1px solid var(--color-border);
+}
+
+[data-no-wallpaper='0'] :is(.chip:not(.active):hover, .shelf-chip:not(.active):hover, .shelf-add:hover) {
+  /* 状态叠层仍是 alpha tint，不用实色 */
+  background: color-mix(in srgb, var(--surface-textplate) 88%, var(--color-text) 12%);
+}
+
+/* 选中态也要有实底：原本只有 20% accent tint，压在壁纸上文字对比不稳 */
+[data-no-wallpaper='0'] .shelf-chip.active {
+  background: color-mix(in srgb, var(--surface-textplate) 82%, var(--accent) 18%);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+[data-no-wallpaper='0'] .empty-state {
+  background: var(--surface-textplate);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-container);
+}
+
 /* ========== 原生视图过渡（View Transitions） ==========
    只给「内容区」和「封面」命名，不动侧栏/顶栏：切页时框架保持静止，
    变化的部分做形变，视觉上更像同一个界面在换内容，而不是整屏重绘。 */
@@ -2746,10 +2789,14 @@ code {
   }
 }
 
-/* 整屏（root）同步淡变，避免旧/新快照叠出位移感 */
+/* 整屏（root）同步淡变，避免旧/新快照叠出位移感。
+   group 必须一并显式设时长：Chromium 默认是 250ms，只给 old/new 设 175ms
+   会让 root 的几何变换单独慢一拍（ANIM_PROBE 实测漏网项）。 */
+::view-transition-group(root),
 ::view-transition-old(root),
 ::view-transition-new(root) {
   animation-duration: var(--motion-fast);
+  animation-timing-function: var(--ease-standard);
 }
 
 /* 书架 → 详情：卡片封面与详情封面同名，浏览器会把它们当成同一个元素做形变 */
@@ -2757,8 +2804,16 @@ code {
   view-transition-name: book-cover;
 }
 
+/* 与详情面板 / 遮罩 / root 淡变统一到 175ms fast band（旧值 320ms 让封面形变
+   单独慢一拍，表现为「详情页面弹出速度与封面不一致」）。 */
 ::view-transition-group(book-cover) {
-  animation-duration: 320ms;
+  animation-duration: var(--motion-fast);
+  animation-timing-function: var(--ease-standard);
+}
+
+::view-transition-old(book-cover),
+::view-transition-new(book-cover) {
+  animation-duration: var(--motion-fast);
   animation-timing-function: var(--ease-standard);
 }
 

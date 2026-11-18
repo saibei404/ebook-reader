@@ -632,3 +632,21 @@ Crashpad 标注 `_version=0.11.1`；单实例锁使第二实例 `app.quit()`，
 验证：`tsc` / 161 单测 / 35 状态 `NO_RENDER_ERRORS`；真实 profile 可见窗口下
 `adjacentSame=0`、`spineCount=0`、`wrapBorder=0px`、深浅首本 `#1d2126` vs `#f0f2f4`；
 深浅书架与单张封面原图人工核对。详见 `RELEASE-v45.md`。
+
+---
+
+## v46（0.14.1）：弹出速度统一 + 壁纸下深浅界面重构
+
+封面饱和度四版方案已给出但**待用户选定**，本轮不嵌入 `cover.ts`。
+
+| 问题 | 根因 | 修复 |
+|---|---|---|
+| 详情页面弹出速度低于封面 | `::view-transition-group(book-cover)` 320ms、root group 用 Chromium 默认 250ms、面板/遮罩 175ms、`bookMorph` 挂 420ms、非 morph 的 `layoutId` 走 spring | 全部统一 `--motion-fast` 175ms + 同一缓动；`ANIM_PROBE` 实测 11 个动画全 175ms |
+| 壁纸蒙版过重 | 内容区 alpha 0.57 / 浅色安全底 0.42、适配罩深色 0.85；可读性靠整片糊实色 | 内容区统一降到 0.24（深浅等量反向染色），滑块按 0.42/0.34 系数映射；罩 0.34/0.08；安全底 0.24 |
+| 选项可读性 | `.shelf-chip`、`.search-box`、`.sort-select` 等只用 alpha tint 或透明底，压在壁纸上对比不稳 | 新增 `--surface-textplate`（0.94 近不透明），仅 `[data-no-wallpaper='0']` 时套到统计文字/筛选 chip/下拉/搜索/空状态；选中 chip 也有实底 |
+| 深浅界面区别 | 旧版靠不同强度的白雾/黑幕区分，与「降蒙版」冲突 | 改由框架暗板/亮板、承载面明/暗、文字浅/深三者承担，内容区染色等量反向 |
+
+实测（真实 profile + 爱弥斯壁纸 + 透明度 57%）：深色内容区 `rgba(22,23,26,0.24)`、
+浅色 `rgba(251,252,253,0.24)`；plate 深 `rgba(28,30,34,0.94)` / 浅 `rgba(251,252,253,0.94)`；
+最坏纯黑壁纸下浅色 plate 底色约 `rgb(236,237,238)`，与深字对比 >12:1。
+验证：`tsc` / 161 单测 / 35 状态 `NO_RENDER_ERRORS` / 深浅窗口截图人工核对。

@@ -10,6 +10,7 @@ import { vtMorphActive } from '@/lib/vt-book'
 import { withAsyncViewTransition } from '@/lib/vt'
 import { t, useLang } from '@/lib/i18n'
 import { getProcCover } from '@/lib/cover'
+import { MOTION_FAST } from '@/lib/anim'
 import { IconX, IconImage, IconShuffle, IconRefresh, IconTrash, IconBook } from './Icons'
 
 export function BookDetail() {
@@ -114,6 +115,8 @@ export function BookDetail() {
                的形变，motion 的 shared layout 会再跑一遍同样的封面飞入，两个动画叠在一起。
                非 morph 场景（?open= / 阅读器返回）没有 VT，仍保留原来的封面飞入。 */
             layoutId={morph ? undefined : `cover-${book.id}`}
+            /* 非 morph 路径的 shared layout 默认走 spring，会与 VT 的 175ms 抢节奏 */
+            transition={MOTION_FAST}
             ref={coverRef}
             className={`detail-cover${named ? ' vt-morph' : ''}`}
             src={coverUrl}

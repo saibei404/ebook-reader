@@ -114,11 +114,12 @@
    * 仍然可见可调，但不再透出壁纸（Astryx 表面一律不透明）。 */
   --bg-fallback: var(--color-background-body);
   --bg-base: var(--color-background-body);
-  /* 组件表面（卡片/按钮/弹层）恒不透明；只有页面级底色保留壁纸透出，
-     不透明度由设置滑块驱动。壁纸适配罩是图像 tint，用纯黑压暗。 */
+  /* 壁纸模式（深色）：框架保持可读，内容区只做极轻染色，可读性交给局部承载面。
+     滑块仍线性生效，但按 0.42 系数映射到低蒙版区间，拖满也不会把壁纸盖死。 */
   --dock-bg: rgba(20, 21, 24, var(--dock-opacity, 0.55));
-  --content-surface: rgba(22, 23, 26, var(--content-opacity, 0.72));
-  --detail-scrim: rgba(10, 11, 14, 0.48);
+  --content-surface: rgba(22, 23, 26, calc(var(--content-opacity, 0.72) * 0.42));
+  --surface-textplate: rgba(28, 30, 34, 0.94);
+  --detail-scrim: rgba(10, 11, 14, 0.4);
   --chip-surface: var(--color-neutral);
   --surf-1: var(--color-background-muted);
   --surf-2: var(--color-background-surface);
@@ -138,9 +139,9 @@
   --active-bg: var(--color-overlay-pressed);
   --scroll-thumb: var(--color-track);
   --code-bg: var(--color-neutral);
-  /* 适配罩用半透明色：JS 还会再叠一层 opacity(wallpaperDim)。
-     深色压暗可以重，浅色提亮必须轻，否则白罩 + 白色表面两次叠加会把壁纸彻底漂白。 */
-  --wallpaper-scrim: rgba(0, 0, 0, 0.85);
+  /* 适配罩只做色调归一，不压壁纸：JS 还会再叠一层 opacity(wallpaperDim)=0.4，
+     深色实际压暗 0.34×0.4≈13.6%（旧值 0.85×0.4=34% 蒙版过重）。 */
+  --wallpaper-scrim: rgba(0, 0, 0, 0.34);
   --accent: var(--color-accent);
   --accent-2: var(--color-accent);
   --ok: var(--color-success);
@@ -188,23 +189,24 @@
   --shadow-low: 0 1px 2px rgba(20, 24, 32, 0.08);
   --shadow-med: 0 4px 12px rgba(20, 24, 32, 0.1);
   --shadow-high: 0 12px 28px rgba(20, 24, 32, 0.14);
-  /* overlay/modal 层：alpha tint 但要有足够压暗，浅色下 0.32 会让壁纸抢过弹层 */
-  --detail-scrim: rgba(28, 32, 40, 0.48);
-  /* 浅色：页面级底色半透明让壁纸透出；提亮罩必须很轻，
-     否则「白罩 + 白表面」会把彩色壁纸洗成粉白，表现为壁纸显示错误。 */
+  /* overlay/modal 层：alpha tint，压住弹层边界但不糊死壁纸 */
+  --detail-scrim: rgba(28, 32, 40, 0.4);
+  /* 壁纸模式（浅色）：亮色框架 + 极轻提亮罩 + 低不透明内容区，
+     与深色的「暗板 + 压暗罩」形成明确的深浅系统差异；文字靠 --surface-textplate 保 AA。 */
   --dock-bg: rgba(233, 237, 244, var(--dock-opacity, 0.55));
-  --content-surface: rgba(251, 252, 253, var(--content-opacity, 0.66));
-  --wallpaper-scrim: rgba(255, 255, 255, 0.15);
+  --content-surface: rgba(251, 252, 253, calc(var(--content-opacity, 0.66) * 0.34));
+  --surface-textplate: rgba(251, 252, 253, 0.94);
+  --wallpaper-scrim: rgba(255, 255, 255, 0.08);
 }
 
-/* 浅色安全底：暗壁纸 / 亮度未知 / 无壁纸时给页面级底色一个不透明度下限，
- * 避免用户把滑块拉到极低时半透明白叠在暗壁纸上混成中灰、黑字对比度崩掉。
+/* 浅色安全底：暗壁纸 / 亮度未知 / 无壁纸时给内容区一个不透明度下限，
+ * 避免滑块拉到极低时半透明白叠在暗壁纸上混成中灰。
  *
- * 关键：绝不能写死成 0.84/0.86 —— 那会把彩色壁纸一律洗成粉白，
- * 而且 dataBgLum 的「暗」判定用的是平均亮度，鲜艳的蓝紫渐变也会被误判为暗。
- * 用 max(下限, 用户设定值)：默认 0.66 白 + 最坏纯黑壁纸 ≈ rgb(166,167,168)，
- * 与 #1b1d21 深字对比仍 >6:1，过 AA；同时壁纸颜色能真实透出。
- * 组件表面（卡片/按钮/弹层）本来就恒不透明，这里只兜底 Dock 与内容区。 */
+ * 关键：绝不能写死成 0.84/0.86 或 0.55 —— 那会把彩色壁纸洗成粉白，
+ * 且 dataBgLum 用平均亮度判定，鲜艳的蓝紫渐变也会被误判为「暗」。
+ * 现在文字与选项由 --surface-textplate 提供近不透明承载面（最坏纯黑壁纸下
+ * 底色仍约 rgb(236,237,238)，与 #1b1d21 深字对比 >12:1），内容区只需 0.24 下限；
+ * 与深色的 0.24 暗染等量反向，深浅差异由框架 / 承载面 / 文字色承担，不再靠白雾。 */
 [data-theme='light'][data-no-wallpaper='1'],
 [data-theme='light'][data-bg-lum='dark'],
 [data-theme='light'][data-bg-lum='unknown'],
@@ -212,7 +214,7 @@
   --bg-fallback: var(--color-background-body);
   --bg-base: var(--color-background-body);
   --dock-bg: rgba(233, 237, 244, max(0.55, var(--dock-opacity, 0.55)));
-  --content-surface: rgba(251, 252, 253, max(0.55, var(--content-opacity, 0.66)));
+  --content-surface: rgba(251, 252, 253, max(0.24, calc(var(--content-opacity, 0.66) * 0.34)));
   --surface-card: var(--color-background-surface);
   --chip-surface: var(--color-neutral);
   --surface-inset: var(--color-neutral);

@@ -34,8 +34,9 @@ export function openBookWithCover(bookId: string, cardEl: HTMLElement | null): v
       open(bookId)
     })
   } finally {
+    // 只比 fast band 多留一帧余量；旧值 420ms 会让详情在封面到位后仍挂着 morph 标记
     window.setTimeout(() => {
       bookMorph = false
-    }, 420)
+    }, 200)
   }
 }

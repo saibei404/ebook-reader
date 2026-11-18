@@ -20,7 +20,7 @@ import {
   deleteAnnotationsOfBook,
   allCovers,
 } from '@/lib/db'
-import { generateCoverDataUrl } from '@/lib/cover'
+import { PALETTE_COUNT, dropCover, getCoverSlot, pinCoverSlot, unpinCoverSlot } from '@/lib/cover'
 import { markAdded } from '@/lib/recent-added'
 import { seedBooks } from '@/lib/seed'
 import { nativeApi, type PickedFile } from '@/lib/native'
@@ -135,7 +135,6 @@ interface Store {
   shelves: Shelf[]
   settings: Settings
   covers: Record<string, string>
-  procCovers: Record<string, string>
   wallpapers: WallpaperItem[]
   webdav: WebdavState
   hydrated: boolean
@@ -313,7 +312,6 @@ export const useStore = create<Store>((setState, getState) => ({
   shelves: [],
   settings: DEFAULT_SETTINGS,
   covers: {},
-  procCovers: {},
   wallpapers: [],
   webdav: {
     provider: 'webdav',
@@ -378,19 +376,15 @@ export const useStore = create<Store>((setState, getState) => ({
 
     // 种子数据只在「首次启动」播一次：用户删光书籍后重启不应复活示例书
     const seeded = await seededP
-    const procCovers: Record<string, string> = {}
     if (books.length === 0 && !seeded) {
       books = seedBooks(now)
       for (const b of books) {
         await putBook(b)
-        procCovers[b.id] = generateCoverDataUrl(b)
       }
       await setKV('seeded', true)
     }
-    // 有真实封面的书不必再画一张程序化封面（省一次 canvas 绘制与内存）
-    for (const b of books) {
-      if (!procCovers[b.id] && !b.coverId) procCovers[b.id] = generateCoverDataUrl(b)
-    }
+    // 程序化封面由 BookCard / BookDetail 按「主题 + 书架顺序槽位」派生并缓存，
+    // 不再在 init 阶段预生成（预生成无法跟随主题切换，也无法保证相邻不同色）。
 
     /**
      * 载入真实封面。
@@ -514,7 +508,6 @@ export const useStore = create<Store>((setState, getState) => ({
       books,
       shelves,
       settings: merged,
-      procCovers,
       covers,
       wallpapers,
       webdav: {
@@ -602,15 +595,6 @@ export const useStore = create<Store>((setState, getState) => ({
       setState((s) => ({
         books: [...s.books, ...created],
         covers: { ...s.covers, ...newCovers },
-        procCovers: {
-          ...s.procCovers,
-          // 没有真实封面的书用书名封面兜底（generateCoverDataUrl 内部会画书名）
-          ...Object.fromEntries(
-            created
-              .filter((b) => !b.coverId)
-              .map((b) => [b.id, generateCoverDataUrl(b)] as const)
-          ),
-        },
       }))
     }
 
@@ -656,15 +640,13 @@ export const useStore = create<Store>((setState, getState) => ({
     )
     setState({ shelves })
     await setKV('shelves', shelves)
+    // 同步清理该书的槽位与封面缓存，避免长期使用后内存累积已删除书籍的 dataURL
+    dropCover(id)
     setState((s) => {
-      // 同步清理封面缓存，避免长期使用后内存中累积已删除书籍的 dataURL
-      const procCovers = { ...s.procCovers }
-      delete procCovers[id]
       const covers = { ...s.covers }
       if (book?.coverId) delete covers[book.coverId]
       return {
         books: s.books.filter((b) => b.id !== id),
-        procCovers,
         covers,
         ui: { ...s.ui, selectedId: s.ui.selectedId === id ? null : s.ui.selectedId },
       }
@@ -774,8 +756,9 @@ export const useStore = create<Store>((setState, getState) => ({
     const book = getState().books.find((b) => b.id === id)
     if (!book) return
     const seed = Math.floor(Math.random() * 100000)
-    const dataUrl = generateCoverDataUrl({ ...book, coverSeed: seed })
-    setState((s) => ({ procCovers: { ...s.procCovers, [id]: dataUrl } }))
+    // 换到另一个色槽并锁定，避免 BookGrid 的顺序分配把它改回去
+    const next = (getCoverSlot(id, seed) + 1 + Math.floor(Math.random() * (PALETTE_COUNT - 1))) % PALETTE_COUNT
+    pinCoverSlot(id, next)
     await getState().updateBook(id, { coverSeed: seed, coverId: null })
     getState().toast('已随机生成新封面', 'ok')
   },
@@ -784,8 +767,7 @@ export const useStore = create<Store>((setState, getState) => ({
     const book = getState().books.find((b) => b.id === id)
     if (!book) return
     if (book.coverId) await deleteCover(book.coverId)
-    const dataUrl = generateCoverDataUrl(book)
-    setState((s) => ({ procCovers: { ...s.procCovers, [id]: dataUrl } }))
+    unpinCoverSlot(id)
     await getState().updateBook(id, { coverId: null })
     getState().toast('已恢复默认封面', 'info')
   },

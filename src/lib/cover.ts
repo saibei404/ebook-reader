@@ -1,32 +1,65 @@
-import type { Book } from '@/types/book'
-
 /**
- * 程序化默认封面（无封面书籍 / 随机封面）。
+ * 程序化默认封面 · 方案 04「巨型首字水印」。
  *
- * Astryx 设计语言（参考 meta/astryx 的 Design Conventions）：
- *  - 表面用带色调的中性色，禁用纯黑纯白；明暗双模文字都过 AA
- *  - 圆角按 role：page 28 → container 12 → element 8 → inner 4，同心 r_inner = r_outer - gap
- *  - 排版走 base 14 / ratio 1.2 的 role 阶梯，字重四档 400/500/600/700
- *  - 一个界面只有一个 primary emphasis：这里只用一条 accent 条，不做满版渐变
- *  - 不用玻璃拟态、径向光斑、内高光、渐变文字等装饰
+ * Astryx 设计语言：
+ *  - 低饱和带色调中性色（HSL 饱和度 10–30%），禁纯黑白、禁渐变/光斑/玻璃
+ *  - 深浅双模：同一色相槽位各有一套明暗配色，切换主题时同一本书换版不换「身份」
+ *  - 单一 primary emphasis（顶部 40×8 accent 条），巨型首字仅作低对比底纹
+ *  - 4px 栅格、字号 role 阶梯 33/17、字重 500/400
  *
- * 契约不变：300x400 PNG dataURL、coverSeed → 配色、函数签名与调用处。
- * 格式标签由书架卡片徽标展示，封面不重复绘制。
+ * 版面为直角满版，圆角由 .book-cover-wrap 的 overflow:hidden 统一裁切，
+ * 避免「封面自带 28px 圆角 + 容器 12px 圆角 + 1px 边框」形成双层留白。
+ * 左下角 60px 完全留空，交给书卡的 format-badge，杜绝图标重合。
+ *
+ * 契约：300×400 PNG dataURL；coverSeed 仍作为槽位回退与「随机封面」的变更标记。
  */
-export function coverHue(seed: number): number {
-  return Math.abs(Math.trunc(seed)) % PALETTES.length
+export type CoverMode = 'light' | 'dark'
+
+/** 8 个低饱和色相槽位：色相 + 明度双重错开，保证相邻图书视觉上一眼可分辨 */
+const HUES = [212, 192, 148, 36, 352, 18, 264, 172]
+const LIGHT_BG_L = [95, 90, 94, 89, 96, 91, 93, 88]
+const DARK_BG_L = [13, 19, 12, 20, 14, 18, 15, 22]
+export const PALETTE_COUNT = HUES.length
+
+interface Scheme {
+  bg: string
+  fg: string
+  sub: string
+  line: string
+  mark: string
+  accent: string
 }
 
-/** 7 组语义配色，对应 Astryx 预置主题的中性/强调取向；均为带色调中性，非纯黑白 */
-const PALETTES: { bg: string; fg: string; sub: string; line: string; accent: string; onAccent: string }[] = [
-  { bg: '#e9ecf1', fg: '#1b1d21', sub: '#4c515b', line: '#cfd5df', accent: '#2f6fe4', onAccent: '#ffffff' }, // neutral
-  { bg: '#f2ecd9', fg: '#2c2718', sub: '#635b42', line: '#ded4b8', accent: '#a2761a', onAccent: '#ffffff' }, // butter
-  { bg: '#eae2dd', fg: '#2b211d', sub: '#63504a', line: '#d6c7bf', accent: '#8b4a2f', onAccent: '#ffffff' }, // chocolate
-  { bg: '#e4ece3', fg: '#1c291d', sub: '#4a5c4b', line: '#cbd9c9', accent: '#2f7a4c', onAccent: '#ffffff' }, // matcha
-  { bg: '#e8eaed', fg: '#20242a', sub: '#525963', line: '#d0d4da', accent: '#4a5b70', onAccent: '#ffffff' }, // stone
-  { bg: '#24262b', fg: '#e9eaed', sub: '#a7abb4', line: '#3a3d44', accent: '#8b7bd8', onAccent: '#14161a' }, // gothic
-  { bg: '#e2edf2', fg: '#17242c', sub: '#4a626f', line: '#c6dbe5', accent: '#1f7fa0', onAccent: '#ffffff' }, // y2k
-]
+function scheme(slot: number, mode: CoverMode): Scheme {
+  const i = ((slot % HUES.length) + HUES.length) % HUES.length
+  const h = HUES[i]
+  const c = (s: number, l: number) => `hsl(${h}, ${s}%, ${l}%)`
+  if (mode === 'light') {
+    const L = LIGHT_BG_L[i]
+    return {
+      bg: c(14, L),
+      fg: c(12, 15),
+      sub: c(10, 38),
+      line: c(14, L - 9),
+      mark: c(18, L - 7),
+      accent: c(30, 46),
+    }
+  }
+  const L = DARK_BG_L[i]
+  return {
+    bg: c(14, L),
+    fg: c(10, 93),
+    sub: c(10, 66),
+    line: c(12, L + 12),
+    mark: c(16, L + 8),
+    accent: c(30, 62),
+  }
+}
+
+/** 兼容旧调用：seed → 槽位（未经过书架顺序分配时的回退） */
+export function coverHue(seed: number): number {
+  return Math.abs(Math.trunc(seed)) % PALETTE_COUNT
+}
 
 function roundRectPath(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number): void {
   ctx.beginPath()
@@ -78,12 +111,26 @@ function layoutLines(ctx: CanvasRenderingContext2D, text: string, maxWidth: numb
   return lines
 }
 
-export function generateCoverDataUrl(book: {
+/** 首字水印：取书名第一个字母/汉字/数字，英文转大写 */
+function initialChar(title: string): string {
+  const hit = Array.from(title || '').find((ch) => /[\p{L}\p{N}]/u.test(ch))
+  return (hit ?? '书').toUpperCase()
+}
+
+export interface CoverInput {
+  id?: string
   title: string
   author: string
   format: string
   coverSeed: number
-}): string {
+}
+
+export interface CoverOptions {
+  mode?: CoverMode
+  slot?: number
+}
+
+export function generateCoverDataUrl(book: CoverInput, opts: CoverOptions = {}): string {
   const w = 300
   const h = 400
   const canvas = document.createElement('canvas')
@@ -92,83 +139,135 @@ export function generateCoverDataUrl(book: {
   const ctx = canvas.getContext('2d')
   if (!ctx) return ''
 
-  const p = PALETTES[coverHue(book.coverSeed)]
+  const mode: CoverMode =
+    opts.mode ?? (document.documentElement.dataset.theme === 'light' ? 'light' : 'dark')
+  const slot = opts.slot ?? (book.id ? getCoverSlot(book.id, book.coverSeed) : coverHue(book.coverSeed))
+  const p = scheme(slot, mode)
 
-  // 4px 栅格：外边距 24、内容区 252、gap 8/16/24
   const margin = 24
   const contentW = w - margin * 2
-  const innerW = contentW - 16 * 2
 
   ctx.save()
-  // page role：28px，同心父级
-  roundRectPath(ctx, 0, 0, w, h, 28)
-  ctx.clip()
-
-  // 1) 页面级底色（不透明、带色调中性）
+  ctx.textBaseline = 'alphabetic'
   ctx.fillStyle = p.bg
   ctx.fillRect(0, 0, w, h)
 
-  // 2) 顶部语义条：唯一的 accent emphasis，用 8px 高度 + 圆角，不做满版渐变
+  const titleFont = '500 33px "PingFang SC", "Microsoft YaHei", system-ui, sans-serif'
+  // 1) 先按书名字号折行（measureText 依赖当前 font）
+  ctx.font = titleFont
+  const titleLines = layoutLines(ctx, book.title || '未命名', contentW, 3)
+
+  // 2) 顶部唯一的 accent emphasis（inner role 4px）
   roundRectPath(ctx, margin, margin, 40, 8, 4)
   ctx.fillStyle = p.accent
   ctx.fill()
 
-  // 3) 书名容器：container role 12px，内部间距 16px → 同心
-  ctx.font = '600 27px "PingFang SC", "Microsoft YaHei", system-ui, sans-serif'
-  const titleLines = layoutLines(ctx, book.title || '未命名', innerW, 3)
-  const titleLH = 36
-  const titleH = Math.max(titleLH, titleLines.length * titleLH)
+  // 3) 巨型首字水印：尺寸/基线随书名行数自适应，与标题首行保持约 48px 间隙。
+  //    短书名时下移放大填满中部，长书名时上移缩小避免挤压。
+  const marks = [
+    { size: 150, base: 210 },
+    { size: 136, base: 172 },
+    { size: 120, base: 136 },
+  ]
+  const mk = marks[Math.min(Math.max(titleLines.length, 1), 3) - 1]
+  ctx.textAlign = 'center'
+  ctx.font = `500 ${mk.size}px "PingFang SC", "Microsoft YaHei", system-ui, sans-serif`
+  ctx.fillStyle = p.mark
+  ctx.fillText(initialChar(book.title), 218, mk.base)
+  ctx.textAlign = 'left'
 
-  const cardY = 120
-  const cardH = titleH + 16 * 2 + 20 + 16
-  roundRectPath(ctx, margin, cardY, contentW, cardH, 12)
-  ctx.fillStyle = p.bg
-  ctx.fill()
-  ctx.strokeStyle = p.line
-  ctx.lineWidth = 1
-  ctx.stroke()
-
-  // 4) 文字：role 阶梯 + 四档字重
-  ctx.textBaseline = 'alphabetic'
-  const tx = margin + 16
+  // 4) 书名：底部对齐，最后一行基线恒为 288，最多 3 行
+  ctx.font = titleFont
+  const lineH = 38
+  const lastBase = 288
   ctx.fillStyle = p.fg
-  ctx.font = '600 27px "PingFang SC", "Microsoft YaHei", system-ui, sans-serif'
-  titleLines.forEach((ln, i) => ctx.fillText(ln, tx, cardY + 16 + 28 + i * titleLH))
+  titleLines.forEach((ln, i) => {
+    ctx.fillText(ln, margin, lastBase - (titleLines.length - 1 - i) * lineH)
+  })
 
-  // 分隔线：1px 语义描边
-  const ruleY = cardY + 16 + 28 + (titleLines.length - 1) * titleLH + 20
-  ctx.strokeStyle = p.line
-  ctx.beginPath()
-  ctx.moveTo(tx, ruleY)
-  ctx.lineTo(margin + contentW - 16, ruleY)
-  ctx.stroke()
-
-  // 作者（supporting role、400 字重、次级文字色）
-  ctx.fillStyle = p.sub
-  ctx.font = '400 15px "PingFang SC", "Microsoft YaHei", system-ui, sans-serif'
-  let author = book.author || '佚名'
-  while (author.length > 1 && ctx.measureText(author).width > innerW) author = author.slice(0, -1)
-  if (author !== (book.author || '佚名')) author = author.slice(0, -1) + '…'
-  ctx.fillText(author, tx, cardY + cardH - 20)
-
-  // 5) 底部标签：element role 8px + accent 实心。宽度按实测文字量取，
-  //    避免文字被裁（旧版固定 88px 装不下 "MOYU BOOKS"）。
-  const chipY = h - margin - 30
-  ctx.font = '500 13px "PingFang SC", "Microsoft YaHei", system-ui, sans-serif'
-  const label = 'MOYU BOOKS'
-  const chipW = Math.ceil(ctx.measureText(label).width) + 24
-  roundRectPath(ctx, margin, chipY, chipW, 28, 8)
-  ctx.fillStyle = p.accent
-  ctx.fill()
-  ctx.fillStyle = p.onAccent
-  ctx.fillText(label, margin + 12, chipY + 19)
-
-  // 6) 右下角页码式几何锚点（inner role 4px），纯装饰但不带渐变/发光
-  roundRectPath(ctx, w - margin - 20, chipY + 6, 20, 16, 4)
+  // 5) 1px 语义分隔线
   ctx.strokeStyle = p.line
   ctx.lineWidth = 1
+  ctx.beginPath()
+  ctx.moveTo(margin, 304)
+  ctx.lineTo(margin + contentW, 304)
   ctx.stroke()
+
+  // 6) 作者（supporting role），基线 328，下方 60px 留给书卡格式徽标
+  ctx.font = '400 17px "PingFang SC", "Microsoft YaHei", system-ui, sans-serif'
+  ctx.fillStyle = p.sub
+  const rawAuthor = book.author || '佚名'
+  let author = rawAuthor
+  while (author.length > 1 && ctx.measureText(author).width > contentW) author = author.slice(0, -1)
+  if (author !== rawAuthor) author = author.slice(0, -1) + '…'
+  ctx.fillText(author, margin, 328)
 
   ctx.restore()
   return canvas.toDataURL('image/png')
+}
+
+/** ---------- 槽位分配与缓存 ----------
+ * 书架按「当前可见顺序」分配槽位（i % 8），保证相邻图书不同色；
+ * 手动随机封面锁定的槽位不会被顺序分配覆盖。
+ */
+const slotMap = new Map<string, number>()
+const pinned = new Set<string>()
+const cache = new Map<string, string>()
+
+/** 由 BookGrid 在每次渲染前调用，ids 为当前可见列表顺序 */
+export function assignCoverSlots(ids: string[]): void {
+  ids.forEach((id, i) => {
+    if (pinned.has(id)) return
+    slotMap.set(id, i % PALETTE_COUNT)
+  })
+}
+
+export function getCoverSlot(id: string, seed = 0): number {
+  return slotMap.get(id) ?? coverHue(seed)
+}
+
+/** 手动换封面：锁定新槽位并让该书缓存失效 */
+export function pinCoverSlot(id: string, slot: number): void {
+  slotMap.set(id, ((slot % PALETTE_COUNT) + PALETTE_COUNT) % PALETTE_COUNT)
+  pinned.add(id)
+  invalidateCover(id)
+}
+
+/** 恢复默认封面：解除锁定，回到顺序分配 */
+export function unpinCoverSlot(id: string): void {
+  pinned.delete(id)
+  slotMap.delete(id)
+  invalidateCover(id)
+}
+
+/** 移除书籍：只清这一本的槽位与缓存 */
+export function dropCover(id: string): void {
+  pinned.delete(id)
+  slotMap.delete(id)
+  invalidateCover(id)
+}
+
+function invalidateCover(id: string): void {
+  for (const k of Array.from(cache.keys())) {
+    if (k.startsWith(`${id}|`)) cache.delete(k)
+  }
+}
+
+/** 组件统一入口：按 book + 主题 + 槽位派生，命中缓存则不重画 */
+export function getProcCover(book: CoverInput, mode: CoverMode): string {
+  const id = book.id ?? ''
+  const slot = getCoverSlot(id, book.coverSeed)
+  const key = `${id}|${mode}|${slot}|${book.title}|${book.author}|${book.coverSeed}`
+  const hit = cache.get(key)
+  if (hit) return hit
+  const url = generateCoverDataUrl(book, { mode, slot })
+  if (cache.size > 400) cache.clear()
+  cache.set(key, url)
+  return url
+}
+
+export function clearCoverCache(): void {
+  cache.clear()
+  slotMap.clear()
+  pinned.clear()
 }

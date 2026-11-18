@@ -613,3 +613,22 @@ Crashpad 标注 `_version=0.11.1`；单实例锁使第二实例 `app.quit()`，
 `animGrid 678/678`、`content 720/720`、语言 `[131×5]`、描述无截断；
 详情 `panelBg=rgb(251,252,253)`、`transformStyle=flat`、`perspective=none`、溢出 0；
 书架/设置/详情三张窗口截图人工核对。详见 `RELEASE-v44.md`。
+
+---
+
+## v45（0.14.0）：默认封面定稿
+
+用户从六版方案中选 04「巨型首字水印」，要求低饱和、相邻异色、深浅双版。
+
+| 问题 | 根因 | 修复 |
+|---|---|---|
+| 四周明显留白 | 封面自带 28px 圆角 + `.book-cover-wrap` 的 `background`/`1px border`/12px 圆角，两层圆角不匹配露出容器底色 | 封面改直角满版，容器只留 `overflow:hidden` + 圆角 + 阴影 |
+| 左下角图标重合 | 封面底部 `MOYU BOOKS` 胶囊与书卡 `.format-badge` 同位 | 封面底部 60px 完全留空 |
+| 最左侧书脊 | `BookCard.tsx` 的 `<span className="spine">` + 2px CSS 竖条 | DOM 与 CSS 一并移除 |
+| 相邻同色 + 颜色不可分辨 | `coverSeed % 7` 随机分配；8 组统一明度下低饱和色相人眼几乎无差 | 按可见顺序 `i % 8` 分配；再加明度错位数组（浅 88–96 / 深 12–22） |
+| 深浅只有一版 | `procCovers` 在 init 阶段预生成静态 dataURL，不跟随主题 | 移除 `Store.procCovers`，组件按 `settings.theme` 派生，同槽位双模配色 |
+| 长书名与水印挤压 | 水印尺寸/基线固定 | 随书名行数自适应 150/136/120px、基线 210/172/136，恒定约 48px 间隙 |
+
+验证：`tsc` / 161 单测 / 35 状态 `NO_RENDER_ERRORS`；真实 profile 可见窗口下
+`adjacentSame=0`、`spineCount=0`、`wrapBorder=0px`、深浅首本 `#1d2126` vs `#f0f2f4`；
+深浅书架与单张封面原图人工核对。详见 `RELEASE-v45.md`。

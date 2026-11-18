@@ -6,6 +6,7 @@ import { useStore } from '@/store/useStore'
 import { openBookWithCover } from '@/lib/vt-book'
 import { isRecentlyAdded } from '@/lib/recent-added'
 import { NEW_CARD_INITIAL, NEW_CARD_ANIMATE } from '@/lib/anim'
+import { getProcCover } from '@/lib/cover'
 import { IconTrash, IconImage } from './Icons'
 
 interface Props {
@@ -29,7 +30,8 @@ export function BookCard({
   onDropOnBook,
   dragging = false,
 }: Props) {
-  const { covers, procCovers, openBook, removeBook, setUI } = useStore()
+  const { covers, openBook, removeBook, setUI } = useStore()
+  const theme = useStore((s) => s.settings.theme)
   /** 只在挂载时判一次：标记 1.5s 后会过期，不能让重渲染把入场动画换掉 */
   const [justAdded] = useState(() => isRecentlyAdded(book.id))
   /** 落点提示：'before' | 'after' | null */
@@ -85,7 +87,8 @@ export function BookCard({
       el.removeEventListener('dragend', onEnd)
     }
   }, [dragging, onDragStartBook, onDropOnBook, book.id, book.title])
-  const coverUrl = (book.coverId ? covers[book.coverId] : null) ?? procCovers[book.id] ?? ''
+  // 真实封面优先；程序化封面按当前主题派生深/浅两版
+  const coverUrl = book.coverId ? (covers[book.coverId] ?? '') : getProcCover(book, theme)
 
   /* Astryx：3D 倾斜跟随与封面高光均为装饰性动效，已整体移除。
      之前保留 motion value 但恒置 0，仍会给每张卡创建 3D 合成层（16 张 = 16 层）。 */
@@ -121,7 +124,6 @@ export function BookCard({
           ) : (
             <div className="book-cover book-cover-ph" />
           )}
-          <span className="spine" aria-hidden />
           <span className="format-badge">{FORMAT_LABEL[book.format]}</span>
           {progress > 0.0005 && (
             /* 圆环进度（iPhone 电量环风格）：置于右上角，与左下角格式徽标错开，杜绝重叠 */

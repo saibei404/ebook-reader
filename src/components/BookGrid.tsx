@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import type { Book } from '@/types/book'
 import { GRID_VARIANTS } from '@/lib/anim'
+import { assignCoverSlots } from '@/lib/cover'
 import { useStore } from '@/store/useStore'
 import { BookCard } from './BookCard'
 
@@ -27,6 +28,9 @@ export function BookGrid({ books, draggingId = null, onDragStartBook, onDropOnBo
   }, [settings.animMode])
 
   const v = GRID_VARIANTS[settings.animMode]
+
+  // 按当前可见顺序分配低饱和色槽：相邻图书必不同色（手动锁定的槽位保留）
+  assignCoverSlots(books.map((b) => b.id))
 
   return (
     <motion.div

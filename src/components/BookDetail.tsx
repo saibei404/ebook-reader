@@ -9,11 +9,13 @@ import { nativeApi } from '@/lib/native'
 import { vtMorphActive } from '@/lib/vt-book'
 import { withAsyncViewTransition } from '@/lib/vt'
 import { t, useLang } from '@/lib/i18n'
+import { getProcCover } from '@/lib/cover'
 import { IconX, IconImage, IconShuffle, IconRefresh, IconTrash, IconBook } from './Icons'
 
 export function BookDetail() {
-  const { books, covers, procCovers, ui, openBook, removeBook, setCoverFromFile, randomizeCover, resetCover, toast } =
+  const { books, covers, ui, openBook, removeBook, setCoverFromFile, randomizeCover, resetCover, toast } =
     useStore()
+  const theme = useStore((s) => s.settings.theme)
   useLang()
   const fileRef = useRef<HTMLInputElement>(null)
   const book = books.find((b) => b.id === ui.selectedId)
@@ -78,7 +80,7 @@ export function BookDetail() {
       if (cur && cur !== el) el.style.viewTransitionName = prev
     }
   }
-  const coverUrl = (book.coverId ? covers[book.coverId] : null) ?? procCovers[book.id] ?? ''
+  const coverUrl = book.coverId ? (covers[book.coverId] ?? '') : getProcCover(book, theme)
   // 进度以 locator 为准（真实阅读位置），老数据回退 progress
   const pct = Math.round((book.locator?.percent ?? book.progress ?? 0) * 100)
 

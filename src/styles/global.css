@@ -844,12 +844,10 @@ code {
 
 .book-cover-wrap {
   position: relative;
-  /* 圆角与 .mat-* 材质层对齐；实色衬底 + 1px 边框，和顶栏/侧栏/详情面板同一套语言 */
+  /* 圆角统一由容器裁切：封面是直角满版，不再叠自身圆角 + 实色衬底 + 1px 边框，
+     否则两层圆角不匹配会露出容器底色，表现为「四周明显留白」 */
   border-radius: var(--radius-container);
   overflow: hidden;
-  box-sizing: border-box;
-  background: var(--surf-solid);
-  border: 1px solid var(--border-1);
   box-shadow: var(--card-shadow);
   transition: box-shadow var(--motion-fast) var(--ease-standard);
   aspect-ratio: 3 / 4;
@@ -857,19 +855,6 @@ code {
 
 .book-card:hover .book-cover-wrap {
   box-shadow: var(--card-shadow-hover);
-}
-
-/* 书脊高光/暗线（2px，固定要求） */
-.spine {
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 2px;
-  z-index: 2;
-  pointer-events: none;
-  /* Astryx：1px 语义描边，不用渐变 */
-  background: var(--color-border-emphasized);
 }
 
 .book-cover {
